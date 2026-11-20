@@ -258,7 +258,7 @@ function vWoche(){
   h += `<div class="card"><h3>Wiederkehrende Woche (Vorlage)</h3><div class="dp">Diese Vorgabe gilt für jeden Tag, solange für ein Datum nichts eigenes eingetragen ist.</div>`;
   for(let i=1;i<=7;i++){ const k = ["mo","di","mi","do","fr","sa","so"][i-1]; const w = (doc.woche||{})[k];
     h += `<div class="term"><div class="ic">${i}</div><div style="flex:1"><div class="t">${WOCHENTAG[i-1]}</div><div class="m">${w?esc((w.personen||[]).join(", "))+(w.zeit?" · "+esc(w.zeit):"")+(w.aktivitaet?" · "+esc(w.aktivitaet):""):"—"}</div></div><button class="mini" data-woche="${k}">ändern</button></div>`; }
-  h += `</div>`;
+  h += `</div><div class="card"><h3>Regeln (Stall Gräfelfing)</h3><div class="dp">Kein Tag ohne Bewegung. · Nie zwei harte Einheiten hintereinander. · Wird es eng, fällt die Reiteinheit. · Wenn etwas ausfällt: sofort melden – dann übernimmt Annika.</div></div>`;
   return h;
 }
 function vProto(){

@@ -162,14 +162,9 @@ function merge(r){
   }
   if(r.woche) for(const k of Object.keys(r.woche)) doc.woche[k] = newer(doc.woche[k], r.woche[k]);
   if(r.wichtig && (!doc.wichtig || (r.wichtig.ts||0) > (doc.wichtig.ts||0))) doc.wichtig = r.wichtig;
-  if((r.stand||0) > alt){
-    /* Der andere Stand ist neuer: was dort fehlt und älter ist, wurde dort gelöscht. */
-    for(const g of ["protokoll","termine","plan","turniere"]){
-      for(const k of Object.keys(doc[g]||{})){
-        if(!(r[g]||{})[k] && (doc[g][k].ts||0) < (r.stand||0) && !dirty) delete doc[g][k];
-      }
-    }
-  }
+  /* Löschungen wandern ausschließlich über Grabsteine (tomb). Fehlte ein Eintrag im
+     neueren Stand, wurde er dort nicht zwingend gelöscht – ein Gerät kann vor dem
+     Abgleich gespeichert haben. Deshalb wird hier nie allein wegen Fehlens gelöscht. */
   if((r.stand||0) > (doc.stand||0)) doc.stand = r.stand;
   const t = r.tomb||{}; for(const k of Object.keys(t)){
     for(const g of ["protokoll","termine","turniere"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];

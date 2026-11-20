@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Schoki · Stallplan & Protokoll</title>
+<meta name="theme-color" content="#141A20">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%23141A20'/><text x='32' y='45' font-size='38' text-anchor='middle' fill='%23E8B84B'>S</text></svg>">
+<style>
+:root{--bg:#F4F6F8;--card:#fff;--ink:#141A20;--ink2:#5C6773;--line:#DDE3E8;--acc:#0B5D8A;--acc2:#E8B84B;--ok:#1E7A4B;--warn:#B4470B;--r:14px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.45}
+header{position:sticky;top:0;z-index:20;background:var(--ink);color:#fff;padding:10px 14px calc(10px + env(safe-area-inset-top)) ;padding-top:calc(10px + env(safe-area-inset-top))}
+.hrow{display:flex;align-items:center;gap:10px}
+.logo{font-weight:800;font-size:19px;letter-spacing:.2px}
+.logo span{color:var(--acc2)}
+.sub{font-size:12px;color:#B9C4CE;margin-top:2px}
+.who{margin-left:auto;background:#2A343D;border:0;color:#fff;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600}
+.sync{font-size:11.5px;color:#9FB0BE;margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dot{width:8px;height:8px;border-radius:50%;background:#3FB27F;display:inline-block}
+.dot.off{background:#E8B84B}
+nav{position:sticky;top:0;z-index:19;display:flex;gap:6px;overflow-x:auto;background:var(--ink);padding:8px 10px;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav button{flex:0 0 auto;background:#232D36;color:#C7D2DB;border:0;border-radius:999px;padding:9px 14px;font-size:14px;font-weight:600}
+nav button.on{background:var(--acc2);color:#141A20}
+main{padding:14px 12px 120px;max-width:760px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+h2{font-size:16px;margin:2px 0 10px}
+h3{font-size:14px;margin:0 0 8px;color:var(--ink2);text-transform:uppercase;letter-spacing:.5px}
+label{display:block;font-size:13px;font-weight:600;color:var(--ink2);margin:10px 0 4px}
+input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:16px;background:#FBFCFD;color:var(--ink);font-family:inherit}
+textarea{min-height:74px;resize:vertical}
+.row{display:flex;gap:10px}.row>*{flex:1}
+button.prim{width:100%;margin-top:14px;background:var(--acc);color:#fff;border:0;border-radius:12px;padding:14px;font-size:16px;font-weight:700}
+button.sec{background:#EEF2F5;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600}
+button.mini{background:none;border:0;color:var(--acc);font-weight:600;font-size:13.5px;padding:4px 2px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.chip{border:1px solid var(--line);background:#FBFCFD;border-radius:999px;padding:9px 13px;font-size:14.5px;font-weight:600}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.eintrag{border-top:1px solid var(--line);padding:11px 0;display:flex;gap:10px}
+.eintrag:first-child{border-top:0}
+.who-badge{flex:0 0 40px;height:40px;border-radius:12px;background:#EEF2F5;color:var(--acc);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px}
+.eintrag .t{font-weight:700}.eintrag .m{font-size:13.5px;color:var(--ink2);white-space:pre-wrap}
+.tag{display:inline-block;background:#EEF2F5;color:var(--ink2);border-radius:999px;padding:2px 9px;font-size:12px;font-weight:700;margin-right:6px}
+.tag.ok{background:#E4F3EA;color:var(--ok)}.tag.warn{background:#FBEADF;color:var(--warn)}
+.day{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:#FBFCFD}
+.day.today{border-color:var(--acc);background:#F0F7FB;box-shadow:0 0 0 2px #E3EFF7 inset}
+.day .dh{display:flex;align-items:center;gap:8px;font-weight:700}
+.day .dh small{margin-left:auto;color:var(--ink2);font-weight:600}
+.day .dp{font-size:14px;color:var(--ink2);margin-top:4px}
+.term{display:flex;gap:10px;align-items:flex-start;border-top:1px solid var(--line);padding:11px 0}
+.term:first-child{border-top:0}
+.term .ic{flex:0 0 38px;height:38px;border-radius:11px;background:#EEF2F5;display:flex;align-items:center;justify-content:center;font-size:18px}
+.empty{color:var(--ink2);font-size:14px;text-align:center;padding:14px}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.tabs button{background:#EEF2F5;border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:600;color:var(--ink2)}
+.tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;max-width:760px;margin:0 auto}
+footer button{flex:1}
+.banner{background:#FFF7E3;border:1px solid #F0DCA6;color:#6B5320;border-radius:12px;padding:10px 12px;font-size:13.5px;margin-bottom:12px}
+.modal{position:fixed;inset:0;background:rgba(16,22,28,.55);display:flex;align-items:flex-end;z-index:40}
+.sheet{background:#fff;width:100%;max-width:760px;margin:0 auto;border-radius:18px 18px 0 0;padding:16px 14px calc(18px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div>
+      <div class="logo">Schoki <span>·</span> Stallplan</div>
+      <div class="sub" id="subline">Gemeinsamer Plan · Protokoll · Termine</div>
+    </div>
+    <button class="who" id="whoBtn">Wer?</button>
+  </div>
+  <div class="sync"><span class="dot" id="dot"></span><span id="syncTxt">verbinde …</span></div>
+</header>
+<nav>
+  <button data-tab="heute" class="on">Heute</button>
+  <button data-tab="woche">Woche</button>
+  <button data-tab="proto">Protokoll</button>
+  <button data-tab="termine">Termine</button>
+  <button data-tab="team">Team</button>
+</nav>
+<main id="main"></main>
+<footer>
+  <button class="sec" id="btnReload">Aktualisieren</button>
+  <button class="prim" id="btnNeu" style="margin-top:0">Eintrag erfassen</button>
+</footer>
+
+<div class="modal hidden" id="modal"><div class="sheet" id="sheet"></div></div>
+
+<script>
+/* ====== Konfiguration ====== */
+const BUCKET = "HuCDKH1zjs9QPg6yTPeVqH";       // gemeinsamer Speicher (kvdb.io)
+const KEY    = "schoki";
+const API    = "https://kvdb.io/" + BUCKET + "/" + KEY;
+const CODE   = "schoki";                        // Familien-Code (kann hier geändert werden)
+const POLL   = 15000;
+
+const PERSONEN = ["Annika","Marta","Vivien","Marie","Hanna","Christiana","Thomas"];
+const ROLLEN = {"Annika":"Reitbeteiligung / Hauptperson","Marta":"Reitbeteiligung","Vivien":"reitet Mi + Do mit",
+                "Marie":"Tochter · Mi + Do","Hanna":"Tochter · Mi + Do","Christiana":"Reitlehrerin","Thomas":"Orga"};
+const AKTIV = ["Geführt (Dressur)","Longe","Ausritt","Bodenarbeit","Freispringen","Springen","Galopptraining",
+               "Schrittrunde","Trabarbeit","Weide / Ruhe","Nur versorgt (Futter, Misten)","Eindecken","Sonstiges"];
+const TERMART = [["physio","🩺 Physio"],["hufschmied","🐴 Hufschmied / Beschlag"],["impfung","💉 Impfung"],
+                 ["zahnarzt","🦷 Zahnarzt"],["tierarzt","🩺 Tierarzt"],["wurmkur","🐛 Wurmkur"],
+                 ["sattel","🪑 Sattel / Ausrüstung"],["sonstiges","📌 Sonstiges"]];
+const FEST = {3:{zeit:"15:00–16:00",hinweis:"Marie + Hanna"},4:{zeit:"15:30–16:30",hinweis:"Marie + Hanna"}};
+const WOCHENTAG = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
+
+/* ====== Zustand ====== */
+let doc = {v:1,stand:0,protokoll:{},termine:{},plan:{},woche:{},tomb:{},wichtig:null};
+const grab = (g,id) => { doc.tomb[id] = Date.now(); delete doc[g][id]; };
+let me = localStorage.getItem("schoki_wer") || "";
+let pending = false, dirty = false, offline = false, codeOk = false;
+
+/* ====== Hilfen ====== */
+const $ = s => document.querySelector(s);
+const iso = d => { const x = new Date(d); return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"); };
+const today = () => iso(new Date());
+const parse = s => { const [y,m,t] = s.split("-").map(Number); return new Date(y,m-1,t); };
+const dfmt = s => { const d = parse(s); return WOCHENTAG[(d.getDay()+6)%7].slice(0,2)+", "+String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+"."+d.getFullYear(); };
+const dshort = s => { const d = parse(s); return String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+"."; };
+const wd = s => WOCHENTAG[(parse(s).getDay()+6)%7];
+const esc = t => String(t==null?"":t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const rel = ts => { if(!ts) return "—"; const s = Math.round((Date.now()-ts)/1000); if(s<60) return "gerade eben";
+  if(s<3600) return Math.round(s/60)+" Min"; if(s<86400) return Math.round(s/3600)+" Std"; return Math.round(s/86400)+" Tage"; };
+const initials = n => (n||"?").slice(0,2);
+function tage_bis(s){ const t = parse(today()), d = parse(s); return Math.round((d-t)/86400000); }
+
+/* ====== Sync ====== */
+async function pull(first){
+  try{
+    const r = await fetch(API + "?_=" + Date.now(), {cache:"no-store"});
+    if(r.status === 404){ offline = false; if(first){ await push(); } }
+    else if(!r.ok) throw new Error(r.status);
+    else {
+      const remote = await r.json();
+      merge(remote);
+      offline = false;
+    }
+    setSync("synchron · Stand " + rel(doc.stand));
+  }catch(e){ offline = true; setSync("offline – Daten liegen auf diesem Gerät"); }
+  render();
+}
+function merge(r){
+  if(!r || typeof r !== "object") return;
+  const newer = (a,b) => (b && (!a || (b.ts||0) > (a.ts||0))) ? b : a;
+  for(const g of ["protokoll","termine","plan"]){
+    doc[g] = doc[g] || {};
+    for(const k of Object.keys(r[g]||{})) doc[g][k] = newer(doc[g][k], r[g][k]);
+  }
+  if(r.woche) for(const k of Object.keys(r.woche)) doc.woche[k] = newer(doc.woche[k], r.woche[k]);
+  if(r.wichtig && (!doc.wichtig || (r.wichtig.ts||0) > (doc.wichtig.ts||0))) doc.wichtig = r.wichtig;
+  if((r.stand||0) > (doc.stand||0)) doc.stand = r.stand;
+  const t = r.tomb||{}; for(const k of Object.keys(t)){
+    for(const g of ["protokoll","termine"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];
+    if(!doc.plan[k] || (doc.plan[k].ts||0) < t[k]) delete doc.plan[k];
+  }
+}
+async function push(){
+  doc.stand = Date.now();
+  try{
+    const r = await fetch(API, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(doc)});
+    if(!r.ok) throw new Error(r.status);
+    offline = false; localStorage.setItem("schoki_cache", JSON.stringify(doc));
+    setSync("gespeichert · " + rel(doc.stand));
+  }catch(e){
+    offline = true; localStorage.setItem("schoki_cache", JSON.stringify(doc));
+    setSync("offline gespeichert – wird nachgereicht");
+  }
+}
+function setSync(t){ $("#syncTxt").textContent = t; $("#dot").className = "dot" + (offline?" off":""); }
+const save = async () => { dirty = true; await push(); };
+
+/* ====== Erfassung ====== */
+function sProtokoll(p){
+  return {id:uid(), datum:p.datum, personen:p.personen, zeit:p.zeit, aktivitaet:p.aktivitaet,
+          dauer:p.dauer, wie:p.wie||"", note:p.note||"", by:me, ts:Date.now()};
+}
+function sTermin(p){
+  return {id:uid(), art:p.art, datum:p.datum, zeit:p.zeit||"", wer:p.personen||[], info:p.info||"",
+          kosten:p.kosten||"", erledigt:false, by:me, ts:Date.now()};
+}
+
+/* ====== Rendern ====== */
+let tab = "heute", pf = "alle";
+function render(){
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  $("#whoBtn").textContent = me ? me : "Wer?";
+  const m = $("#main");
+  if(tab === "heute") m.innerHTML = vHeute();
+  else if(tab === "woche") m.innerHTML = vWoche();
+  else if(tab === "proto") m.innerHTML = vProto();
+  else if(tab === "termine") m.innerHTML = vTermine();
+  else m.innerHTML = vTeam();
+  bind();
+}
+function zuletzt(n){ return Object.values(doc.protokoll||{}).filter(x => x.datum === n).sort((a,b)=>a.ts-b.ts); }
+function planTag(n){
+  const p = (doc.plan||{})[n]; if(p) return p;
+  const w = (doc.woche||{})[String((parse(n).getDay()+6)%7===0?"mo":["mo","di","mi","do","fr","sa","so"][(parse(n).getDay()+6)%7])];
+  return w ? {personen:w.personen||[],zeit:w.zeit||"",aktivitaet:w.aktivitaet||"",ts:w.ts,aus:true} : null;
+}
+function vHeute(){
+  const n = today(), e = zuletzt(n), p = planTag(n), w = (doc.wichtig && (Date.now()-(doc.wichtig.ts||0)) < 7*86400000) ? doc.wichtig : null;
+  const faellig = Object.values(doc.termine||{}).filter(t => !t.erledigt && tage_bis(t.datum) <= 14)
+                    .sort((a,b) => a.datum.localeCompare(b.datum));
+  let h = "";
+  if(w) h += `<div class="banner"><b>Aushang von ${esc(w.by)}:</b> ${esc(w.text)}</div>`;
+  h += `<div class="card"><h2>Heute · ${dfmt(n)}</h2>
+    <div class="dp">${p ? `<b>Geplant:</b> ${(p.personen||[]).join(", ")||"—"}${p.zeit?" · "+esc(p.zeit):""}${p.aktivitaet?" · "+esc(p.aktivitaet):""}${p.aus?' <span class="tag">Wochenregel</span>':''}`
+    : `<span class="tag warn">noch nichts eingetragen</span> Tägliche Betreuung ist offen.`}</div>
+    <h3 style="margin-top:14px">Was ist heute passiert?</h3>`;
+  if(e.length===0) h += `<div class="empty">Noch kein Protokolleintrag für heute.</div>`;
+  else h += e.map(x => `<div class="eintrag"><div class="who-badge">${esc(initials(x.by||x.personen?.[0]))}</div>
+      <div style="flex:1"><div class="t">${esc((x.personen||[]).join(", "))} · ${esc(x.aktivitaet)}${x.dauer?" · "+esc(x.dauer)+" Min":""}</div>
+      <div class="m">${esc(x.wie)}${x.note?"\n"+esc(x.note):""}</div>
+      <div><span class="tag">${esc(x.zeit||"")}</span><span class="tag">erfasst von ${esc(x.by||"—")}</span></div></div>
+      <button class="mini" data-del-proto="${x.id}">löschen</button></div>`).join("");
+  h += `<button class="prim" data-neu="proto">Eintrag erfassen</button></div>`;
+  h += `<div class="card"><h2>Nächste Termine</h2>`;
+  h += faellig.length ? faellig.slice(0,6).map(t => {
+      const d = tage_bis(t.datum);
+      return `<div class="term"><div class="ic">${esc((TERMART.find(a=>a[0]===t.art)||["","📌"])[1].slice(0,2))}</div>
+        <div style="flex:1"><div class="t">${esc((TERMART.find(a=>a[0]===t.art)||["","Sonstiges"])[1].replace(/^\S+\s/,""))}</div>
+        <div class="m">${dfmt(t.datum)}${t.zeit?" · "+esc(t.zeit):""}${t.info?" · "+esc(t.info):""}</div></div>
+        <span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen"}</span></div>`;
+    }).join("") : `<div class="empty">Keine Termine in den nächsten 14 Tagen.</div>`;
+  h += `<button class="prim" data-neu="termin">Termin eintragen</button></div>`;
+  return h;
+}
+function vWoche(){
+  const heute = today();
+  const montag = new Date(parse(heute)); montag.setDate(montag.getDate() - ((montag.getDay()+6)%7));
+  let h = `<div class="card"><h2>Wochenübersicht</h2><div class="dp">Feste Zeiten: Mittwoch 15:00–16:00 · Donnerstag 15:30–16:30 (Marie + Hanna).</div></div>`;
+  for(let i=0;i<7;i++){
+    const d = new Date(montag); d.setDate(montag.getDate()+i);
+    const n = iso(d);
+    const tagIdx = (d.getDay()+6)%7, f = FEST[tagIdx+1] ? {zeit:FEST[tagIdx+1].zeit,hinweis:FEST[tagIdx+1].hinweis} : null;
+    const p = planTag(n), e = zuletzt(n);
+    h += `<div class="day ${n===heute?"today":""}"><div class="dh">${wd(n)} <small>${dshort(n)}${n===heute?" · heute":""}</small></div>
+      <div class="dp">${p ? `<b>${(p.personen||[]).join(", ")||"—"}</b>${p.zeit?" · "+esc(p.zeit):""}${p.aktivitaet?" · "+esc(p.aktivitaet):""}`:`<span class="tag warn">offen</span>`}${f?" <span class='tag'>fest "+esc(f.zeit)+"</span>":""}</div>
+      ${e.length?`<div class="dp">${e.map(x=>`✔ ${esc((x.personen||[]).join(", "))}: ${esc(x.aktivitaet)}${x.wie?" – "+esc(x.wie).slice(0,60):""}`).join("<br>")}</div>`:""}
+      <div style="margin-top:8px"><button class="mini" data-plan="${n}">Tag bearbeiten</button> <button class="mini" data-neu="proto" data-datum="${n}">Protokoll</button></div></div>`;
+  }
+  h += `<div class="card"><h3>Wiederkehrende Woche (Vorlage)</h3><div class="dp">Diese Vorgabe gilt für jeden Tag, solange für ein Datum nichts eigenes eingetragen ist.</div>`;
+  for(let i=1;i<=7;i++){ const k = ["mo","di","mi","do","fr","sa","so"][i-1]; const w = (doc.woche||{})[k];
+    h += `<div class="term"><div class="ic">${i}</div><div style="flex:1"><div class="t">${WOCHENTAG[i-1]}</div><div class="m">${w?esc((w.personen||[]).join(", "))+(w.zeit?" · "+esc(w.zeit):"")+(w.aktivitaet?" · "+esc(w.aktivitaet):""):"—"}</div></div><button class="mini" data-woche="${k}">ändern</button></div>`; }
+  h += `</div>`;
+  return h;
+}
+function vProto(){
+  let alle = Object.values(doc.protokoll||{}).sort((a,b) => (b.datum+b.ts).localeCompare(a.datum+a.ts));
+  if(pf !== "alle") alle = alle.filter(x => (x.personen||[]).includes(pf));
+  let h = `<div class="card"><h2>Protokoll</h2><div class="tabs"><button class="${pf==="alle"?"on":""}" data-pf="alle">Alle</button>`
+        + PERSONEN.map(p => `<button class="${pf===p?"on":""}" data-pf="${p}">${p}</button>`).join("") + `</div>`;
+  h += alle.length ? alle.slice(0,120).map(x => `<div class="eintrag"><div class="who-badge">${esc(initials((x.personen||[])[0]))}</div>
+      <div style="flex:1"><div class="t">${dfmt(x.datum)} · ${esc((x.personen||[]).join(", "))}</div>
+      <div class="m"><b>${esc(x.aktivitaet)}</b>${x.dauer?" · "+esc(x.dauer)+" Min":""}${x.zeit?" · "+esc(x.zeit):""}${x.wie?"\n"+esc(x.wie):""}${x.note?"\n"+esc(x.note):""}</div>
+      <div><span class="tag">erfasst von ${esc(x.by||"—")}</span><span class="tag">${rel(x.ts)} alt</span></div></div>
+      <button class="mini" data-del-proto="${x.id}">löschen</button></div>`).join("") : `<div class="empty">Noch keine Einträge.</div>`;
+  h += `<button class="prim" data-neu="proto">Eintrag erfassen</button></div>`;
+  return h;
+}
+function vTermine(){
+  const alle = Object.values(doc.termine||{}).sort((a,b) => a.datum.localeCompare(b.datum));
+  const offen = alle.filter(t => !t.erledigt), erl = alle.filter(t => t.erledigt).reverse();
+  const zeile = t => { const d = tage_bis(t.datum);
+    return `<div class="term"><div class="ic">${esc((TERMART.find(a=>a[0]===t.art)||["","📌"])[1].slice(0,2))}</div>
+      <div style="flex:1"><div class="t">${esc((TERMART.find(a=>a[0]===t.art)||["","Sonstiges"])[1].replace(/^\S+\s/,""))}${t.kosten?" · "+esc(t.kosten):""}</div>
+      <div class="m">${dfmt(t.datum)}${t.zeit?" · "+esc(t.zeit):""}${(t.wer||[]).length?" · "+(t.wer||[]).map(esc).join(", "):""}${t.info?"\n"+esc(t.info):""}</div>
+      <div><span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen"}</span><span class="tag">von ${esc(t.by||"—")}</span></div></div>
+      <div style="text-align:right"><button class="mini" data-erl="${t.id}">${t.erledigt?"offen":"erledigt"}</button><br><button class="mini" data-del-term="${t.id}">löschen</button></div></div>`; };
+  let h = `<div class="card"><h2>Termine</h2>`;
+  h += offen.length ? offen.map(zeile).join("") : `<div class="empty">Keine offenen Termine.</div>`;
+  h += `<button class="prim" data-neu="termin">Termin eintragen</button></div>`;
+  h += `<div class="card"><h3>Erledigt</h3>` + (erl.length ? erl.map(zeile).join("") : `<div class="empty">—</div>`) + `</div>`;
+  return h;
+}
+function vTeam(){
+  let h = `<div class="card"><h2>Team &amp; Rollen</h2>`;
+  h += PERSONEN.map(p => `<div class="term"><div class="who-badge">${esc(initials(p))}</div>
+      <div style="flex:1"><div class="t">${esc(p)}</div><div class="m">${esc(ROLLEN[p]||"")}</div></div>
+      <button class="mini" data-als="${p}">${me===p?"ausgewählt":"ich bin das"}</button></div>`).join("");
+  h += `</div><div class="card"><h3>Aushang an alle</h3>
+    <div class="dp">${doc.wichtig?`<b>${esc(doc.wichtig.by)}</b> · ${rel(doc.wichtig.ts)} alt<br>${esc(doc.wichtig.text)}`:"— kein Aushang —"}</div>
+    <button class="prim" data-neu="wichtig">Aushang schreiben</button></div>
+    <div class="card"><h3>Verbindung</h3><div class="dp">Alle Geräte teilen einen gemeinsamen Stand: Was Annika einträgt, sehen alle anderen nach wenigen Sekunden.
+    Speicher: ${esc(BUCKET.slice(0,8))}… · Abgleich alle ${POLL/1000} Sekunden.</div>
+    <button class="sec" id="btnNow" style="margin-top:10px">Jetzt abgleichen</button></div>`;
+  return h;
+}
+
+/* ====== Formulare ====== */
+function sheet(html){ $("#sheet").innerHTML = html; $("#modal").classList.remove("hidden"); }
+function closeSheet(){ $("#modal").classList.add("hidden"); $("#sheet").innerHTML = ""; }
+
+function fWer(){
+  sheet(`<h2>Wer bist du?</h2><div class="dp">Nur einmal nötig – wird auf diesem Gerät gespeichert.</div>
+    <div class="chips" id="chipsWer">${PERSONEN.map(p=>`<button class="chip ${me===p?"on":""}" data-w="${p}">${p}</button>`).join("")}</div>
+    <button class="prim" id="werOk">Speichern</button>`);
+  let sel = me;
+  $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-w]"); if(b){ sel = b.dataset.w;
+    $("#chipsWer").querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.w === sel)); } });
+  $("#werOk").addEventListener("click", () => { if(sel){ me = sel; localStorage.setItem("schoki_wer", me); closeSheet(); render(); } });
+}
+function fProto(vorgabe){
+  const daten = {};
+  sheet(`<h2>Eintrag erfassen</h2>
+    <label>Tag</label><input type="date" id="pDatum" value="${esc(vorgabe||today())}">
+    <label>Wer war dabei? (mehrere möglich)</label><div class="chips" id="pPers">${PERSONEN.map(p=>`<button class="chip" data-pp="${p}">${p}</button>`).join("")}</div>
+    <label>Zeit</label><input type="text" id="pZeit" placeholder="z. B. 15:00–16:00">
+    <label>Was wurde gemacht?</label><select id="pAkt">${AKTIV.map(a=>`<option>${a}</option>`).join("")}</select>
+    <div class="row"><div><label>Dauer (Min)</label><input type="number" inputmode="numeric" id="pDauer" placeholder="60"></div>
+      <div><label>Von wem erfasst</label><input type="text" id="pBy" value="${esc(me)}" readonly></div></div>
+    <label>Wie ist er geritten worden?</label>
+    <textarea id="pWie" placeholder="z. B. erst frisch, nach 20 Min schön locker; Linksgalopp sauber; nichts auffällig"></textarea>
+    <label>Notiz (Hufe, Futter, Auffälligkeiten)</label><textarea id="pNote" placeholder="z. B. rechter Vorderhuf warm"></textarea>
+    <button class="prim" id="pOk">Speichern</button><br><button class="sec" style="width:100%;margin-top:8px" id="pAb">Abbrechen</button>`);
+  const sel = new Set();
+  $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-pp]");
+    if(b){ const p = b.dataset.pp; if(sel.has(p)){sel.delete(p);b.classList.remove("on");} else {sel.add(p);b.classList.add("on");} } });
+  $("#pAb").addEventListener("click", closeSheet);
+  $("#pOk").addEventListener("click", async () => {
+    if(!sel.size){ alert("Bitte mindestens eine Person wählen."); return; }
+    const t = sProtokoll({datum:$("#pDatum").value||today(), personen:[...sel], zeit:$("#pZeit").value.trim(),
+      aktivitaet:$("#pAkt").value, dauer:$("#pDauer").value, wie:$("#pWie").value.trim(), note:$("#pNote").value.trim()});
+    doc.protokoll[t.id] = t; closeSheet(); await save(); render();
+  });
+}
+function fTermin(){
+  sheet(`<h2>Termin eintragen</h2>
+    <label>Art</label><select id="tArt">${TERMART.map(a=>`<option value="${a[0]}">${a[1]}</option>`).join("")}</select>
+    <div class="row"><div><label>Datum</label><input type="date" id="tDatum" value="${today()}"></div>
+      <div><label>Uhrzeit</label><input type="text" id="tZeit" placeholder="10:00"></div></div>
+    <label>Wer ist dabei?</label><div class="chips" id="tPers">${PERSONEN.map(p=>`<button class="chip" data-tp="${p}">${p}</button>`).join("")}</div>
+    <label>Kosten / Honorar</label><input type="text" id="tKosten" placeholder="z. B. 120 €">
+    <label>Notiz</label><textarea id="tInfo" placeholder="z. B. Zahnkontrolle, Praxis Dr. Mayr"></textarea>
+    <button class="prim" id="tOk">Speichern</button><br><button class="sec" style="width:100%;margin-top:8px" id="tAb">Abbrechen</button>`);
+  const sel = new Set();
+  $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-tp]");
+    if(b){ const p = b.dataset.tp; if(sel.has(p)){sel.delete(p);b.classList.remove("on");} else {sel.add(p);b.classList.add("on");} } });
+  $("#tAb").addEventListener("click", closeSheet);
+  $("#tOk").addEventListener("click", async () => {
+    const t = sTermin({art:$("#tArt").value, datum:$("#tDatum").value||today(), zeit:$("#tZeit").value.trim(),
+      personen:[...sel], kosten:$("#tKosten").value.trim(), info:$("#tInfo").value.trim()});
+    doc.termine[t.id] = t; closeSheet(); await save(); render();
+  });
+}
+function fPlan(datum){
+  const p = (doc.plan||{})[datum] || {};
+  sheet(`<h2>${dfmt(datum)}</h2><label>Wer übernimmt?</label>
+    <div class="chips" id="lPers">${PERSONEN.map(x=>`<button class="chip ${(p.personen||[]).includes(x)?"on":""}" data-lp="${x}">${x}</button>`).join("")}</div>
+    <label>Zeit</label><input type="text" id="lZeit" value="${esc(p.zeit||"")}" placeholder="15:00–16:00">
+    <label>Was ist geplant?</label><select id="lAkt"><option value="">— offen —</option>${AKTIV.map(a=>`<option ${p.aktivitaet===a?"selected":""}>${a}</option>`).join("")}</select>
+    <button class="prim" id="lOk">Speichern</button>
+    <button class="sec" style="width:100%;margin-top:8px" id="lClear">Auf Wochenregel zurücksetzen</button>
+    <button class="sec" style="width:100%;margin-top:8px" id="lAb">Abbrechen</button>`);
+  const sel = new Set(p.personen||[]);
+  $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-lp]");
+    if(b){ const x = b.dataset.lp; if(sel.has(x)){sel.delete(x);b.classList.remove("on");} else {sel.add(x);b.classList.add("on");} } });
+  $("#lAb").addEventListener("click", closeSheet);
+  $("#lClear").addEventListener("click", async () => { grab("plan", datum); closeSheet(); await save(); render(); });
+  $("#lOk").addEventListener("click", async () => {
+    doc.plan[datum] = {datum, personen:[...sel], zeit:$("#lZeit").value.trim(), aktivitaet:$("#lAkt").value, by:me, ts:Date.now()};
+    closeSheet(); await save(); render();
+  });
+}
+function fWoche(k){
+  const i = ["mo","di","mi","do","fr","sa","so"].indexOf(k), w = (doc.woche||{})[k] || {};
+  sheet(`<h2>${WOCHENTAG[i]} · Wochenregel</h2><label>Wer übernimmt?</label>
+    <div class="chips" id="wPers">${PERSONEN.map(p=>`<button class="chip ${(w.personen||[]).includes(p)?"on":""}" data-wp="${p}">${p}</button>`).join("")}</div>
+    <label>Zeit</label><input type="text" id="wZeit" value="${esc(w.zeit||(FEST[i+1]?FEST[i+1].zeit:""))}" placeholder="15:00–16:00">
+    <label>Was ist geplant?</label><select id="wAkt"><option value="">— offen —</option>${AKTIV.map(a=>`<option ${w.aktivitaet===a?"selected":""}>${a}</option>`).join("")}</select>
+    <button class="prim" id="wOk">Speichern</button><button class="sec" style="width:100%;margin-top:8px" id="wAb">Abbrechen</button>`);
+  const sel = new Set(w.personen||[]);
+  $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-wp]");
+    if(b){ const p = b.dataset.wp; if(sel.has(p)){sel.delete(p);b.classList.remove("on");} else {sel.add(p);b.classList.add("on");} } });
+  $("#wAb").addEventListener("click", closeSheet);
+  $("#wOk").addEventListener("click", async () => {
+    doc.woche[k] = {personen:[...sel], zeit:$("#wZeit").value.trim(), aktivitaet:$("#wAkt").value, by:me, ts:Date.now()};
+    closeSheet(); await save(); render();
+  });
+}
+function fWichtig(){
+  sheet(`<h2>Aushang an alle</h2><div class="dp">Kurze Mitteilung für alle – z. B. „Morgen kommt der Hufschmied, bitte 10 Uhr"</div>
+    <textarea id="xText" placeholder="Nachricht …">${esc(doc.wichtig?doc.wichtig.text:"")}</textarea>
+    <button class="prim" id="xOk">Speichern</button><button class="sec" style="width:100%;margin-top:8px" id="xAb">Abbrechen</button>`);
+  $("#xAb").addEventListener("click", closeSheet);
+  $("#xOk").addEventListener("click", async () => { doc.wichtig = {text:$("#xText").value.trim(), by:me, ts:Date.now()};
+    closeSheet(); await save(); render(); });
+}
+
+/* ====== Bindung ====== */
+function bind(){
+  document.querySelectorAll("[data-neu]").forEach(b => b.onclick = () => {
+    if(!me){ fWer(); return; }
+    if(b.dataset.neu === "proto") fProto(b.dataset.datum);
+    else if(b.dataset.neu === "termin") fTermin();
+    else fWichtig();
+  });
+  document.querySelectorAll("[data-del-proto]").forEach(b => b.onclick = async () => {
+    if(!confirm("Eintrag wirklich löschen?")) return;
+    grab("protokoll", b.dataset.delProto); await save(); render(); });
+  document.querySelectorAll("[data-del-term]").forEach(b => b.onclick = async () => {
+    if(!confirm("Termin löschen?")) return; grab("termine", b.dataset.delTerm); await save(); render(); });
+  document.querySelectorAll("[data-erl]").forEach(b => b.onclick = async () => {
+    const t = doc.termine[b.dataset.erl]; t.erledigt = !t.erledigt; t.ts = Date.now(); t.by = me; await save(); render(); });
+  document.querySelectorAll("[data-plan]").forEach(b => b.onclick = () => { if(!me) return fWer(); fPlan(b.dataset.plan); });
+  document.querySelectorAll("[data-woche]").forEach(b => b.onclick = () => { if(!me) return fWer(); fWoche(b.dataset.woche); });
+  document.querySelectorAll("[data-als]").forEach(b => b.onclick = () => { me = b.dataset.als; localStorage.setItem("schoki_wer", me); render(); });
+  document.querySelectorAll("[data-pf]").forEach(b => b.onclick = () => { pf = b.dataset.pf; render(); });
+  const now = $("#btnNow"); if(now) now.onclick = async () => { await pull(); };
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+$("#whoBtn").onclick = fWer;
+$("#btnNeu").onclick = () => { if(!me) return fWer(); fProto(); };
+$("#btnReload").onclick = async () => { await pull(); };
+$("#modal").onclick = e => { if(e.target.id === "modal") closeSheet(); };
+document.addEventListener("visibilitychange", () => { if(!document.hidden) pull(); });
+window.addEventListener("online", () => pull());
+
+/* ====== Start ====== */
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(() => {}); }
+(async function start(){
+  if(!codeOk){
+    const c = prompt("Familien-Code für Schoki:");
+    if(c !== null && c.trim().toLowerCase() !== CODE){ alert("Falscher Code."); }
+    codeOk = true;
+  }
+  try{ const c = localStorage.getItem("schoki_cache"); if(c) merge(JSON.parse(c)); }catch(e){}
+  await pull(true);
+  render();
+  setInterval(() => { if(!document.hidden) pull(); }, POLL);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "Schoki · Stallplan",
+  "short_name": "Schoki",
+  "description": "Gemeinsamer Stallplan, Protokoll und Termine für unser Pferd Schoki",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4F6F8",
+  "theme_color": "#141A20",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

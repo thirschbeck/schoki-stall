@@ -79,6 +79,7 @@ footer button{flex:1}
   <button data-tab="heute" class="on">Heute</button>
   <button data-tab="woche">Woche</button>
   <button data-tab="futter">Futter</button>
+  <button data-tab="verein">Verein</button>
   <button data-tab="proto">Protokoll</button>
   <button data-tab="termine">Termine</button>
   <button data-tab="turniere">Turniere</button>
@@ -98,6 +99,8 @@ footer button{flex:1}
 const BUCKET = "HuCDKH1zjs9QPg6yTPeVqH";       // gemeinsamer Speicher (kvdb.io)
 const KEY    = "schoki";
 const API    = "https://kvdb.io/" + BUCKET + "/" + KEY;
+const VEREIN = "https://kvdb.io/" + BUCKET + "/wuermtal";   // Vereinsplan (synchronisiert vom Server)
+const VEREIN_SEITE = "https://reitverein-wuermtal.reitbuch.com/weekplan.php";
 const CODE   = "schoki";                        // Familien-Code (kann hier geändert werden)
 const POLL   = 15000;
 
@@ -124,7 +127,8 @@ const ZART = [["sattel","Sattel"],["zaumzeug","Zaumzeug / Trense"],["halfter","H
 const ZUST = [["ok","in Ordnung"],["reparatur","reparaturbedürftig"],["defekt","defekt"],["weg","ausgemustert"]];
 
 /* ====== Zustand ====== */
-let doc = {v:1,stand:0,protokoll:{},termine:{},turniere:{},futter:{},futterlog:{},zubehoer:{},plan:{},woche:{},tomb:{},wichtig:null};
+let doc = {v:1,stand:0,protokoll:{},termine:{},turniere:{},futter:{},futterlog:{},zubehoer:{},kontakte:{},plan:{},woche:{},tomb:{},wichtig:null};
+let verein = null;
 const grab = (g,id) => { doc.tomb[id] = Date.now(); delete doc[g][id]; };
 let me = localStorage.getItem("schoki_wer") || "";
 let pending = false, dirty = false, offline = false, codeOk = false;
@@ -145,6 +149,14 @@ const initials = n => (n||"?").slice(0,2);
 function tage_bis(s){ const t = parse(today()), d = parse(s); return Math.round((d-t)/86400000); }
 
 /* ====== Sync ====== */
+let vereinZeit = 0;
+async function ladeVerein(erzwungen){
+  if(!erzwungen && Date.now() - vereinZeit < 600000) return;
+  try{
+    const r = await fetch(VEREIN + "?_=" + Date.now(), {cache:"no-store"});
+    if(r.ok){ verein = await r.json(); vereinZeit = Date.now(); }
+  }catch(e){ /* Vereinsplan ist Beiwerk – die App läuft auch ohne */ }
+}
 async function pull(first){
   try{
     const r = await fetch(API + "?_=" + Date.now(), {cache:"no-store"});
@@ -157,13 +169,14 @@ async function pull(first){
     }
     setSync("synchron · Stand " + rel(doc.stand));
   }catch(e){ offline = true; setSync("offline – Daten liegen auf diesem Gerät"); }
+  await ladeVerein();
   render();
 }
 function merge(r){
   if(!r || typeof r !== "object") return;
   const alt = doc.stand || 0;
   const newer = (a,b) => (b && (!a || (b.ts||0) > (a.ts||0))) ? b : a;
-  for(const g of ["protokoll","termine","turniere","futter","futterlog","zubehoer","plan"]){
+  for(const g of ["protokoll","termine","turniere","futter","futterlog","zubehoer","kontakte","plan"]){
     doc[g] = doc[g] || {};
     for(const k of Object.keys(r[g]||{})) doc[g][k] = newer(doc[g][k], r[g][k]);
   }
@@ -174,7 +187,7 @@ function merge(r){
      Abgleich gespeichert haben. Deshalb wird hier nie allein wegen Fehlens gelöscht. */
   if((r.stand||0) > (doc.stand||0)) doc.stand = r.stand;
   const t = r.tomb||{}; for(const k of Object.keys(t)){
-    for(const g of ["protokoll","termine","turniere","futter","futterlog","zubehoer"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];
+    for(const g of ["protokoll","termine","turniere","futter","futterlog","zubehoer","kontakte"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];
     if(!doc.plan[k] || (doc.plan[k].ts||0) < t[k]) delete doc.plan[k];
   }
 }
@@ -248,6 +261,7 @@ function render(){
   else if(tab === "termine") m.innerHTML = vTermine();
   else if(tab === "turniere") m.innerHTML = vTurniere();
   else if(tab === "futter") m.innerHTML = vFutter();
+  else if(tab === "verein") m.innerHTML = vVerein();
   else if(tab === "zubehoer") m.innerHTML = vZubehoer();
   else m.innerHTML = vTeam();
   bind();
@@ -403,7 +417,92 @@ function vTurniere(){
   h += `<div class="card"><h3>Vorbei / abgesagt</h3>` + (alt.length ? alt.map(zeile).join("") : `<div class="empty">—</div>`) + `</div>`;
   return h;
 }
-/* ---------- Überblick: alles auf einen Blick ---------- */
+/* ---------- Kontakte und Dienstleister ---------- */
+const KROLLE = ["Hufschmied","Osteopathie / Physio","Tierarzt","Zahnarzt","Satteldienst","Futterlieferant","Reitlehrer","Stall","Sonstiges"];
+function sKontakt(p){
+  return {id:uid(), name:p.name||"", rolle:p.rolle||"Hufschmied", firma:p.firma||"", adresse:p.adresse||"",
+          tel:p.tel||"", mail:p.mail||"", notiz:p.notiz||"", by:me, ts:Date.now()};
+}
+function kontaktIcon(rolle){
+  const r = rolle||"";
+  if(r.indexOf("Huf")===0) return "🐴";
+  if(r.indexOf("Osteo")===0 || r.indexOf("Physio")>=0) return "💆";
+  if(r.indexOf("Tier")===0 || r.indexOf("Zahn")===0) return "🩺";
+  if(r.indexOf("Sattel")===0) return "🪑";
+  if(r.indexOf("Futter")===0) return "🌾";
+  if(r.indexOf("Reit")===0) return "🏇";
+  if(r.indexOf("Stall")===0) return "🏠";
+  return "📞";
+}
+function vKontakte(){
+  const alle = Object.values(doc.kontakte||{}).sort((a,b) => (a.rolle||"").localeCompare(b.rolle||"") || (a.name||"").localeCompare(b.name||""));
+  let h = `<div class="card"><h2>Kontakte &amp; Dienstleister</h2><div class="dp">Hufschmied, Osteopathie, Tierarzt und Co. – ein Tipp ruft an oder schreibt eine Mail.</div>`;
+  h += alle.length ? alle.map(k => `<div class="term"><div class="ic">${kontaktIcon(k.rolle)}</div>
+      <div style="flex:1"><div class="t">${esc(k.name)}${k.firma?" · "+esc(k.firma):""}</div>
+      <div class="m">${[k.rolle, k.adresse].filter(Boolean).map(esc).join(" · ")}</div>
+      <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
+        ${k.tel?`<a class="mini" style="text-decoration:none" href="tel:${esc(String(k.tel).replace(/[^+0-9]/g,""))}">📞 anrufen</a>`:""}
+        ${k.mail?`<a class="mini" style="text-decoration:none" href="mailto:${esc(k.mail)}">✉️ Mail</a>`:""}
+        <button class="mini" data-kedit="${k.id}">ändern</button>
+        <button class="mini" data-del-kontakt="${k.id}">löschen</button></div>
+      ${k.notiz?`<div class="m">${esc(k.notiz)}</div>`:""}</div></div>`).join("") : `<div class="empty">Noch keine Kontakte erfasst.</div>`;
+  h += `<button class="prim" data-neu="kontakt">Kontakt aufnehmen</button></div>`;
+  return h;
+}
+function fKontakt(id){
+  const k = id ? doc.kontakte[id] : null;
+  sheet(`<h2>${k?"Kontakt ändern":"Neuer Kontakt"}</h2>
+    <label>Name</label><input type="text" id="kName" value="${k?esc(k.name):""}" placeholder="z. B. Stefan Helmrich">
+    <label>Was macht er?</label><select id="kRolle">${KROLLE.map(r=>`<option ${k&&k.rolle===r?"selected":""}>${r}</option>`).join("")}</select>
+    <label>Firma</label><input type="text" id="kFirma" value="${k?esc(k.firma):""}" placeholder="z. B. SH-Hufbeschlag">
+    <label>Adresse</label><input type="text" id="kAdr" value="${k?esc(k.adresse):""}">
+    <label>Telefon</label><input type="tel" id="kTel" value="${k?esc(k.tel):""}">
+    <label>E-Mail</label><input type="email" id="kMail" value="${k?esc(k.mail):""}">
+    <label>Notiz</label><textarea id="kNotiz" placeholder="z. B. kommt alle 6 Wochen">${k?esc(k.notiz):""}</textarea>
+    <button class="prim" id="kOk">Speichern</button>
+    <button class="sec" style="width:100%;margin-top:8px" id="kAb">Abbrechen</button>`);
+  $("#kAb").onclick = closeSheet;
+  $("#kOk").onclick = async () => {
+    const daten = {name:$("#kName").value.trim(), rolle:$("#kRolle").value, firma:$("#kFirma").value.trim(),
+                   adresse:$("#kAdr").value.trim(), tel:$("#kTel").value.trim(), mail:$("#kMail").value.trim(),
+                   notiz:$("#kNotiz").value.trim()};
+    if(!daten.name) return alert("Bitte einen Namen eintragen.");
+    if(k) Object.assign(k, daten, {ts:Date.now(), by:me});
+    else { const n = sKontakt(daten); doc.kontakte[n.id] = n; }
+    closeSheet(); await save(); render();
+  };
+}
+function tagName(s){
+  const d = new Date(s + "T12:00:00");
+  return WOCHENTAG[(d.getDay() + 6) % 7];
+}
+function vVerein(){
+  let h = `<div class="card"><h2>Reitverein Würmtal</h2>
+    <div class="dp">Vereinsplan (Unterricht und Belegungsplan große Halle), automatisch vom Verein geholt. Verbindlich ist immer der Plan im Verein.</div>`;
+  if(!verein){
+    h += `<div class="empty">Vereinsplan wird gerade geladen …</div>`;
+  } else {
+    h += `<div class="m">Stand: ${esc(verein.stand||"—")}</div>`;
+    (verein.wochen||[]).slice(0,2).forEach(w => {
+      h += `<h3>${w.offset===0?"Diese Woche":w.offset===1?"Nächste Woche":"Woche "+esc(String(w.kw))}</h3>`;
+      let etwas = false;
+      (w.tage||[]).forEach(t => {
+        const zeilen = [];
+        for(const name of Object.keys(t.plaene||{})) for(const e of t.plaene[name]) zeilen.push({name:name, e:e});
+        if(!zeilen.length) return;
+        etwas = true;
+        h += `<div class="term" style="display:block"><div class="t">${esc(tagName(t.datum))}, ${dfmt(t.datum)}</div>` +
+             zeilen.map(z => `<div class="m">${esc(z.e.zeit)} · ${esc(z.e.text)} <span class="tag ${z.e.status==="frei"?"ok":z.e.status==="belegt"?"":"warn"}">${esc(z.e.status)}</span>${z.name==="Unterricht"?"":" · "+esc(z.name.replace("Belegungsplan: ",""))}</div>`).join("") +
+             `</div>`;
+      });
+      if(!etwas) h += `<div class="empty">Diese Woche keine Einträge.</div>`;
+    });
+  }
+  h += `<a class="prim" style="display:block;text-align:center;text-decoration:none" href="${VEREIN_SEITE}" target="_blank" rel="noopener">Vereinsplan im Verein öffnen</a>
+        <button class="sec" style="width:100%;margin-top:8px" data-verein="1">Plan neu holen</button></div>`;
+  h += `<div class="card"><h3>Gut zu wissen</h3><div class="m">Kursnamen und Teilnehmer stehen nur nach Anmeldung im Verein. Die App zeigt Zeit, Kurs und Status: frei, Warteliste, voll oder belegt.</div></div>`;
+  return h;
+}
 function vUeberblick(){
   const n = today();
   const p = planTag(n);
@@ -540,6 +639,7 @@ function vTeam(){
     <div class="card"><h3>Verbindung</h3><div class="dp">Alle Geräte teilen einen gemeinsamen Stand: Was Annika einträgt, sehen alle anderen nach wenigen Sekunden.
     Speicher: ${esc(BUCKET.slice(0,8))}… · Abgleich alle ${POLL/1000} Sekunden.</div>
     <button class="sec" id="btnNow" style="margin-top:10px">Jetzt abgleichen</button></div>`;
+  h += vKontakte();
   return h;
 }
 
@@ -682,6 +782,7 @@ function bind(){
     else if(b.dataset.neu === "pflege") fTermin({art:b.dataset.art, wieder:Number(b.dataset.wieder)});
     else if(b.dataset.neu === "futter") fFutter();
     else if(b.dataset.neu === "zubehoer") fZubehoer();
+    else if(b.dataset.neu === "kontakt") fKontakt();
     else fWichtig();
   });
   document.querySelectorAll("[data-del-proto]").forEach(b => b.onclick = async () => {
@@ -705,6 +806,10 @@ function bind(){
     }
     await save(); render(); });
   document.querySelectorAll("[data-plan]").forEach(b => b.onclick = () => { if(!me) return fWer(); fPlan(b.dataset.plan); });
+  document.querySelectorAll("[data-verein]").forEach(b => b.onclick = async () => { await ladeVerein(true); render(); });
+  document.querySelectorAll("[data-kedit]").forEach(b => b.onclick = () => fKontakt(b.dataset.kedit));
+  document.querySelectorAll("[data-del-kontakt]").forEach(b => b.onclick = async () => {
+    if(!confirm("Kontakt löschen?")) return; grab("kontakte", b.dataset.delKontakt); await save(); render(); });
   document.querySelectorAll("[data-del-futter]").forEach(b => b.onclick = async () => {
     if(!confirm("Futterzeit löschen?")) return; grab("futter", b.dataset.delFutter); await save(); render(); });
   document.querySelectorAll("[data-fedit]").forEach(b => b.onclick = () => { if(!me) return fWer(); fFutter(b.dataset.fedit); });

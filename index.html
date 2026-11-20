@@ -85,6 +85,7 @@ footer button{flex:1}
   <button data-tab="turniere">Turniere</button>
   <button data-tab="zubehoer">Zubehör</button>
   <button data-tab="team">Team</button>
+  <button data-tab="vertraege">Verträge</button>
 </nav>
 <main id="main"></main>
 <footer>
@@ -105,8 +106,13 @@ const CODE   = "schoki";                        // Familien-Code (kann hier geä
 const POLL   = 15000;
 
 const PERSONEN = ["Annika","Marta","Vivienne","Marie","Hanna","Thomas"];
-const ROLLEN = {"Annika":"Hauptperson · Reitbeteiligung","Marta":"Reitbeteiligung","Vivienne":"reitet mit",
+const ROLLEN = {"Annika":"Hauptperson · Reitbeteiligung","Marta":"Vertretung für Annika","Vivienne":"reitet mit",
                 "Marie":"Tochter · Mi + Do","Hanna":"Tochter · Mi + Do","Thomas":"Orga"};
+const VERTRAEGE = [
+  {t:"Vertrag über die vertrauensvolle Unterstützung bei der Betreuung",
+   p:"Marta Simone · Vertretung für Annika Schneitz", d:"20.11.2026",
+   f:"vertraege/Vertrag-Marta-Simone-Vertretung-Schocki.pdf"},
+];
 const AKTIV = ["Geführt (Dressur)","Longe","Ausritt","Bodenarbeit","Freispringen","Springen","Galopptraining",
                "Schrittrunde","Trabarbeit","Weide / Ruhe","Nur versorgt (Futter, Misten)","Eindecken","Sonstiges"];
 const TERMART = [["physio","🩺 Physio"],["hufschmied","🐴 Hufschmied / Beschlag"],["impfung","💉 Impfung"],
@@ -263,6 +269,7 @@ function render(){
   else if(tab === "futter") m.innerHTML = vFutter();
   else if(tab === "verein") m.innerHTML = vVerein();
   else if(tab === "zubehoer") m.innerHTML = vZubehoer();
+  else if(tab === "vertraege") m.innerHTML = vVertraege();
   else m.innerHTML = vTeam();
   bind();
 }
@@ -640,6 +647,18 @@ function vTeam(){
     Speicher: ${esc(BUCKET.slice(0,8))}… · Abgleich alle ${POLL/1000} Sekunden.</div>
     <button class="sec" id="btnNow" style="margin-top:10px">Jetzt abgleichen</button></div>`;
   h += vKontakte();
+  return h;
+}
+
+function vVertraege(){
+  let h = `<div class="card"><h2>Verträge</h2><div class="dp">Die gültigen Vereinbarungen rund um Schocki. Zum Lesen antippen – die Datei öffnet sich als PDF, mit „herunterladen“ liegt sie auf dem Gerät.</div></div>`;
+  if(!VERTRAEGE.length) h += `<div class="card"><div class="dp">Noch keine Vereinbarung hinterlegt.</div></div>`;
+  h += VERTRAEGE.map(v => `<div class="card"><div class="t">${esc(v.t)}</div>
+    <div class="m">${esc(v.p)} · Stand ${esc(v.d)}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <a class="prim" style="flex:1;text-decoration:none;text-align:center" href="${esc(v.f)}" target="_blank" rel="noopener">öffnen</a>
+      <a class="sec" style="flex:1;text-decoration:none;text-align:center" href="${esc(v.f)}" download>herunterladen</a>
+    </div></div>`).join("");
   return h;
 }
 

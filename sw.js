@@ -1,5 +1,5 @@
 /* Schoki-Stallplan – Service Worker: App-Hülle offline halten, Daten immer live */
-const CACHE = "schoki-v4";
+const CACHE = "schoki-v5";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", e => {
@@ -10,7 +10,8 @@ self.addEventListener("activate", e => {
 });
 self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);
-  if (u.hostname === "kvdb.io") return;                     /* Daten nie cachen */
+  if (u.hostname === "kvdb.io") return;
+  if (u.pathname.includes("/vertraege/")) return;   /* Vertrags-PDFs nicht cachen */                     /* Daten nie cachen */
   if (e.request.method !== "GET") return;
   e.respondWith(
     fetch(e.request).then(r => {

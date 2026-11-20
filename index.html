@@ -69,7 +69,7 @@ footer button{flex:1}
   <div class="hrow">
     <div>
       <div class="logo">Schoki <span>·</span> Stallplan</div>
-      <div class="sub" id="subline">Gemeinsamer Plan · Protokoll · Termine · Turniere</div>
+      <div class="sub" id="subline">Plan · Futter · Protokoll · Termine · Turniere · Zubehör</div>
     </div>
     <button class="who" id="whoBtn">Wer?</button>
   </div>
@@ -78,9 +78,11 @@ footer button{flex:1}
 <nav>
   <button data-tab="heute" class="on">Heute</button>
   <button data-tab="woche">Woche</button>
+  <button data-tab="futter">Futter</button>
   <button data-tab="proto">Protokoll</button>
   <button data-tab="termine">Termine</button>
   <button data-tab="turniere">Turniere</button>
+  <button data-tab="zubehoer">Zubehör</button>
   <button data-tab="team">Team</button>
 </nav>
 <main id="main"></main>
@@ -115,9 +117,14 @@ const PFLEGE = [["impfung",52,"Impfung – jährlich"],["hufschmied",6,"Beschlag
 const TSTAT = [["geplant","geplant"],["genannt","genannt"],["gelaufen","gelaufen"],["absage","abgesagt"]];
 const FEST = {3:{zeit:"15:00–16:00",hinweis:"Marie + Hanna"},4:{zeit:"15:30–16:30",hinweis:"Marie + Hanna"}};
 const WOCHENTAG = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
+const FUTTERART = ["Heu","Heucobs","Krippenfutter / Müsli","Hafer","Mineralfutter","Mash","Wasser frisch","Weide / Gras","Sonstiges"];
+const ZART = [["sattel","Sattel"],["zaumzeug","Zaumzeug / Trense"],["halfter","Halfter / Strick"],
+              ["decke","Decke"],["gamasche","Gamaschen / Bandagen"],["longe","Longe / Longiergurt"],
+              ["putz","Putzzeug"],["helm","Helm"],["sonstiges","Sonstiges"]];
+const ZUST = [["ok","in Ordnung"],["reparatur","reparaturbedürftig"],["defekt","defekt"],["weg","ausgemustert"]];
 
 /* ====== Zustand ====== */
-let doc = {v:1,stand:0,protokoll:{},termine:{},turniere:{},plan:{},woche:{},tomb:{},wichtig:null};
+let doc = {v:1,stand:0,protokoll:{},termine:{},turniere:{},futter:{},futterlog:{},zubehoer:{},plan:{},woche:{},tomb:{},wichtig:null};
 const grab = (g,id) => { doc.tomb[id] = Date.now(); delete doc[g][id]; };
 let me = localStorage.getItem("schoki_wer") || "";
 let pending = false, dirty = false, offline = false, codeOk = false;
@@ -156,7 +163,7 @@ function merge(r){
   if(!r || typeof r !== "object") return;
   const alt = doc.stand || 0;
   const newer = (a,b) => (b && (!a || (b.ts||0) > (a.ts||0))) ? b : a;
-  for(const g of ["protokoll","termine","plan","turniere"]){
+  for(const g of ["protokoll","termine","turniere","futter","futterlog","zubehoer","plan"]){
     doc[g] = doc[g] || {};
     for(const k of Object.keys(r[g]||{})) doc[g][k] = newer(doc[g][k], r[g][k]);
   }
@@ -167,7 +174,7 @@ function merge(r){
      Abgleich gespeichert haben. Deshalb wird hier nie allein wegen Fehlens gelöscht. */
   if((r.stand||0) > (doc.stand||0)) doc.stand = r.stand;
   const t = r.tomb||{}; for(const k of Object.keys(t)){
-    for(const g of ["protokoll","termine","turniere"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];
+    for(const g of ["protokoll","termine","turniere","futter","futterlog","zubehoer"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];
     if(!doc.plan[k] || (doc.plan[k].ts||0) < t[k]) delete doc.plan[k];
   }
 }
@@ -214,6 +221,20 @@ function sTurnier(p){
           nennung:p.nennung||"", personen:p.personen||[], status:p.status||"geplant",
           kosten:p.kosten||"", info:p.info||"", by:me, ts:Date.now()};
 }
+function sFutter(p){
+  return {id:uid(), zeit:p.zeit||"", art:p.art||"Heu", menge:p.menge||"", wer:p.personen||[],
+          info:p.info||"", taeglich:true, by:me, ts:Date.now()};
+}
+function sZubehoer(p){
+  return {id:uid(), name:p.name, art:p.art||"sonstiges", groesse:p.groesse||"", zustand:p.zustand||"ok",
+          ort:p.ort||"", wer:p.wer||"", kosten:p.kosten||"", info:p.info||"", by:me, ts:Date.now()};
+}
+/* Gefüttert-Haken je Tag und Futterplatz */
+const fKey = (datum, id) => datum + ":" + id;
+const fErledigt = (datum, id) => doc.futterlog[fKey(datum, id)] || null;
+function futterHeute(){
+  return Object.values(doc.futter||{}).sort((a,b) => (a.zeit||"99").localeCompare(b.zeit||"99"));
+}
 
 /* ====== Rendern ====== */
 let tab = "heute", pf = "alle";
@@ -226,6 +247,8 @@ function render(){
   else if(tab === "proto") m.innerHTML = vProto();
   else if(tab === "termine") m.innerHTML = vTermine();
   else if(tab === "turniere") m.innerHTML = vTurniere();
+  else if(tab === "futter") m.innerHTML = vFutter();
+  else if(tab === "zubehoer") m.innerHTML = vZubehoer();
   else m.innerHTML = vTeam();
   bind();
 }
@@ -241,6 +264,7 @@ function vHeute(){
                     .sort((a,b) => a.datum.localeCompare(b.datum));
   let h = "";
   if(w) h += `<div class="banner"><b>Aushang von ${esc(w.by)}:</b> ${esc(w.text)}</div>`;
+  h += vUeberblick();
   h += `<div class="card"><h2>Heute · ${dfmt(n)}</h2>
     <div class="dp">${p ? `<b>Geplant:</b> ${(p.personen||[]).join(", ")||"—"}${p.zeit?" · "+esc(p.zeit):""}${p.aktivitaet?" · "+esc(p.aktivitaet):""}${p.aus?' <span class="tag">Wochenregel</span>':''}`
     : `<span class="tag warn">noch nichts eingetragen</span> Tägliche Betreuung ist offen.`}</div>
@@ -252,6 +276,18 @@ function vHeute(){
       <div><span class="tag">${esc(x.zeit||"")}</span><span class="tag">erfasst von ${esc(x.by||"—")}</span></div></div>
       <button class="mini" data-del-proto="${x.id}">löschen</button></div>`).join("");
   h += `<button class="prim" data-neu="proto">Eintrag erfassen</button></div>`;
+  const fp = futterHeute(), off = fp.filter(x => !fErledigt(n, x.id));
+  h += `<div class="card"><h2>Futter heute</h2>`;
+  h += fp.length ? fp.map(f => {
+    const erl = fErledigt(n, f.id);
+    return `<div class="term"><div class="ic">🍎</div><div style="flex:1">
+      <div class="t">${f.zeit?esc(f.zeit)+" · ":""}${esc(f.art)}${f.menge?" – "+esc(f.menge):""}</div>
+      <div class="m">${(f.wer||[]).length?"wer: "+(f.wer||[]).map(esc).join(", "):"wer: noch offen"}</div>
+      <div>${erl?`<span class="tag ok">gefüttert · ${esc(erl.by||"")}</span>`:`<span class="tag warn">noch offen</span>`}</div></div>
+      <button class="mini" data-fut="${f.id}">${erl?"doch offen":"gefüttert"}</button></div>`;
+  }).join("") : `<div class="empty">Noch keine Futterzeiten – im Reiter „Futter" anlegen.</div>`;
+  if(fp.length) h += `<div class="dp">${off.length?"Noch offen: "+off.map(x=>esc(x.zeit||"?")).join(", "):"Alles gefüttert – danke!"}</div>`;
+  h += `<button class="prim" data-goto="futter">Futterplan öffnen</button></div>`;
   h += `<div class="card"><h2>Nächste Termine</h2>`;
   h += faellig.length ? faellig.slice(0,6).map(t => {
       const d = tage_bis(t.datum);
@@ -367,6 +403,132 @@ function vTurniere(){
   h += `<div class="card"><h3>Vorbei / abgesagt</h3>` + (alt.length ? alt.map(zeile).join("") : `<div class="empty">—</div>`) + `</div>`;
   return h;
 }
+/* ---------- Überblick: alles auf einen Blick ---------- */
+function vUeberblick(){
+  const n = today();
+  const p = planTag(n);
+  const f = futterHeute(), offF = f.filter(x => !fErledigt(n, x.id));
+  const pfl = PFLEGE.map(([art,,label]) => ({label, s:pflegeStand(art)}))
+    .filter(x => x.s.faellig && tage_bis(x.s.faellig) <= 14)
+    .sort((a,b) => a.s.faellig.localeCompare(b.s.faellig));
+  const t0 = Object.values(doc.turniere||{})
+    .filter(t => t.status !== "gelaufen" && t.status !== "absage" && tage_bis(t.bis || t.von) >= 0)
+    .sort((a,b) => (a.von||"").localeCompare(b.von||""))[0];
+  const def = Object.values(doc.zubehoer||{}).filter(z => z.zustand === "defekt" || z.zustand === "reparatur");
+  const naech = Object.values(doc.termine||{}).filter(t => !t.erledigt).sort((a,b) => a.datum.localeCompare(b.datum))[0];
+  const zeile = (icon, titel, zusatz, ziel, warn) => `<div class="term" data-goto="${ziel}"><div class="ic">${icon}</div>
+    <div style="flex:1"><div class="t">${titel}</div><div class="m">${zusatz}</div></div>${warn?`<span class="tag warn">${warn}</span>`:""}</div>`;
+  let h = `<div class="card"><h2>Überblick</h2><div class="dp">Alles auf einen Blick – antippen führt zum passenden Reiter.</div>`;
+  h += zeile("📋", p ? `${esc((p.personen||[]).join(", "))||"—"}${p.zeit?" · "+esc(p.zeit):""}` : "Heute noch nichts geplant",
+        p && p.aktivitaet ? esc(p.aktivitaet) : "Betreuung offen", "woche", p ? "" : "offen");
+  if(f.length) h += zeile("🍎", offF.length ? `${offF.length} von ${f.length} Fütterungen offen` : "Futter komplett erledigt",
+        offF.length ? offF.map(x => esc(x.zeit||"?")+" "+esc(x.art)).join(" · ") : "heute alles gefüttert", "futter", offF.length ? "heute" : "");
+  if(pfl.length) h += zeile("🛠", `${pfl.length} Pflegetermin(e) bald fällig`,
+        pfl.map(x => esc(x.label)+" am "+dfmt(x.s.faellig)).join(" · "), "termine", "bald");
+  if(t0) h += zeile("🏆", esc(t0.name), `${dfmt(t0.von)}${t0.nennung?" · Nennung bis "+dfmt(t0.nennung):""} · in ${tage_bis(t0.von)} Tagen`, "turniere");
+  if(naech){ const d = tage_bis(naech.datum);
+    h += zeile("📅", esc((TERMART.find(a=>a[0]===naech.art)||["","Termin"])[1].replace(/^\S+\s/,"")),
+      `${dfmt(naech.datum)}${naech.zeit?" · "+esc(naech.zeit):""} · ${d<0?Math.abs(d)+" Tage überfällig":"in "+d+" Tagen"}`, "termine", d<0?"überfällig":""); }
+  if(def.length) h += zeile("⚠️", `${def.length} Teil(e) Zubehör kaputt`, def.map(z => esc(z.name)).join(" · "), "zubehoer", "kaputt");
+  h += `</div>`;
+  return h;
+}
+
+/* ---------- Futter ---------- */
+function vFutter(){
+  const n = today(), plan = futterHeute();
+  let h = `<div class="card"><h2>Futterplan</h2>
+    <div class="dp">Was Schoki wann bekommt. Auf „Heute" hakst du ab, wer gefüttert hat – alle sehen es sofort.</div>`;
+  if(!plan.length){
+    h += `<div class="empty">Noch keine Futterzeiten eingetragen.</div>`;
+  } else {
+    h += plan.map(f => {
+      const erl = fErledigt(n, f.id);
+      return `<div class="term"><div class="ic">🍎</div><div style="flex:1">
+        <div class="t">${f.zeit?esc(f.zeit)+" · ":""}${esc(f.art)}${f.menge?" – "+esc(f.menge):""}</div>
+        <div class="m">${(f.wer||[]).length?"wer: "+(f.wer||[]).map(esc).join(", "):"wer: noch offen"}${f.info?"\n"+esc(f.info):""}</div>
+        <div>${erl?`<span class="tag ok">heute gefüttert · ${esc(erl.by||"")}</span>`:`<span class="tag">heute noch offen</span>`}</div></div>
+        <div style="text-align:right"><button class="mini" data-fut="${f.id}">${erl?"doch offen":"gefüttert"}</button><br>
+        <button class="mini" data-fedit="${f.id}">ändern</button><br>
+        <button class="mini" data-del-futter="${f.id}">löschen</button></div></div>`;
+    }).join("");
+  }
+  h += `<button class="prim" data-neu="futter">Futterzeit ergänzen</button></div>`;
+  h += `<div class="card"><h3>So wird gefüttert</h3><div class="m">Heu immer zur Verfügung · Kraftfutter nur nach Plan · nach dem Reiten mindestens 30 Minuten Pause vor dem Krippenfutter · Wasser täglich frisch · Umstellungen langsam über 7–10 Tage.</div></div>`;
+  return h;
+}
+function fFutter(id){
+  const f = id ? doc.futter[id] : null;
+  sheet(`<h2>${f?"Futterzeit ändern":"Futterzeit anlegen"}</h2>
+    <label>Uhrzeit</label><input type="time" id="fZeit" value="${f?esc(f.zeit||""):""}">
+    <label>Was</label><select id="fArt">${FUTTERART.map(a=>`<option ${f&&f.art===a?"selected":""}>${esc(a)}</option>`).join("")}</select>
+    <label>Menge</label><input type="text" id="fMenge" value="${f?esc(f.menge):""}" placeholder="z. B. 2 kg, 1 Schaufel, 2 Heunetze">
+    <label>Wer füttert?</label><div class="chips" id="fPers">${PERSONEN.map(p=>`<button class="chip ${f&&(f.wer||[]).includes(p)?"on":""}" data-fp="${p}">${esc(p)}</button>`).join("")}</div>
+    <label>Notiz</label><textarea id="fInfo" placeholder="z. B. Heunetz morgens und abends, Mash sonntags">${f?esc(f.info):""}</textarea>
+    <button class="prim" id="fOk">Speichern</button><button class="sec" style="width:100%;margin-top:8px" id="fAb">Abbrechen</button>`);
+  const sel = new Set(f?(f.wer||[]):[]);
+  $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-fp]");
+    if(b){ const p = b.dataset.fp; if(sel.has(p)){sel.delete(p);b.classList.remove("on");} else {sel.add(p);b.classList.add("on");} } });
+  $("#fAb").addEventListener("click", closeSheet);
+  $("#fOk").addEventListener("click", async () => {
+    const daten = {zeit:$("#fZeit").value.trim(), art:$("#fArt").value, menge:$("#fMenge").value.trim(),
+                   personen:[...sel], info:$("#fInfo").value.trim()};
+    if(f) Object.assign(f, {zeit:daten.zeit, art:daten.art, menge:daten.menge, wer:[...sel], personen:[...sel],
+                            info:daten.info, ts:Date.now(), by:me});
+    else { const x = sFutter(daten); doc.futter[x.id] = x; }
+    closeSheet(); await save(); render();
+  });
+}
+
+/* ---------- Zubehör ---------- */
+function vZubehoer(){
+  const reihe = ["defekt","reparatur","ok","weg"];
+  const alle = Object.values(doc.zubehoer||{}).sort((a,b) =>
+    reihe.indexOf(a.zustand) - reihe.indexOf(b.zustand) || (a.art||"").localeCompare(b.art||""));
+  const problem = alle.filter(z => z.zustand === "defekt" || z.zustand === "reparatur");
+  let h = `<div class="card"><h2>Zubehör</h2>
+    <div class="dp">Sattel, Zaumzeug, Decken und alles andere. Geht etwas kaputt: Zustand auf „defekt" oder „reparaturbedürftig" setzen – dann steht es bei allen oben und auf „Heute".</div>`;
+  if(problem.length) h += `<div class="banner"><b>${problem.length} Teil(e) brauchen Aufmerksamkeit:</b> ${problem.map(z=>esc(z.name)).join(", ")}</div>`;
+  h += alle.length ? alle.map(z => {
+    const zt = (ZUST.find(x => x[0] === z.zustand) || ["ok","in Ordnung"])[1];
+    const zus = [(ZART.find(a=>a[0]===z.art)||["","Sonstiges"])[1], z.groesse, z.ort, z.wer, z.kosten].filter(Boolean).map(esc).join(" · ");
+    return `<div class="term"><div class="ic">${z.zustand === "ok" ? "🧰" : z.zustand === "weg" ? "📦" : "⚠️"}</div><div style="flex:1">
+      <div class="t">${esc(z.name)}</div>
+      <div class="m">${zus}${z.info?"\n"+esc(z.info):""}</div>
+      <div><span class="tag ${z.zustand === "ok" ? "ok" : z.zustand === "weg" ? "" : "warn"}">${zt}</span></div></div>
+      <div style="text-align:right">
+        ${z.zustand === "ok" ? `<button class="mini" data-zset="${z.id}" data-zustand="reparatur">reparieren</button>` :
+          z.zustand === "reparatur" ? `<button class="mini" data-zset="${z.id}" data-zustand="ok">wieder ok</button>` :
+          z.zustand === "defekt" ? `<button class="mini" data-zset="${z.id}" data-zustand="ok">wieder ok</button>` :
+          `<button class="mini" data-zset="${z.id}" data-zustand="ok">zurück</button>`}<br>
+        <button class="mini" data-zedit="${z.id}">ändern</button><br>
+        <button class="mini" data-del-zub="${z.id}">löschen</button></div></div>`;
+  }).join("") : `<div class="empty">Noch nichts erfasst – fang mit Sattel und Zaumzeug an.</div>`;
+  h += `<button class="prim" data-neu="zubehoer">Teil aufnehmen</button></div>`;
+  return h;
+}
+function fZubehoer(id){
+  const z = id ? doc.zubehoer[id] : null;
+  sheet(`<h2>${z?"Teil ändern":"Teil aufnehmen"}</h2>
+    <label>Was ist es?</label><input type="text" id="zName" value="${z?esc(z.name):""}" placeholder="z. B. Springsattel, Trense, Abschwitzdecke">
+    <label>Art</label><select id="zArt">${ZART.map(a=>`<option value="${a[0]}" ${z&&z.art===a[0]?"selected":""}>${esc(a[1])}</option>`).join("")}</select>
+    <label>Größe / Nummer</label><input type="text" id="zGroesse" value="${z?esc(z.groesse):""}" placeholder="z. B. 17,5 Zoll, Vollblut, 135 cm">
+    <label>Zustand</label><select id="zZust">${ZUST.map(a=>`<option value="${a[0]}" ${z&&z.zustand===a[0]?"selected":""}>${esc(a[1])}</option>`).join("")}</select>
+    <label>Wo liegt es? / Wer hat es?</label><input type="text" id="zOrt" value="${z?esc(z.ort):""}" placeholder="z. B. Sattelkammer Fach 3, bei Annika">
+    <label>Ersatz / Kosten</label><input type="text" id="zKosten" value="${z?esc(z.kosten):""}" placeholder="z. B. 89 € Neupreis">
+    <label>Notiz</label><textarea id="zInfo" placeholder="z. B. Gurtstrippe eingerissen, zum Sattler">${z?esc(z.info):""}</textarea>
+    <button class="prim" id="zOk">Speichern</button><button class="sec" style="width:100%;margin-top:8px" id="zAb">Abbrechen</button>`);
+  $("#zAb").addEventListener("click", closeSheet);
+  $("#zOk").addEventListener("click", async () => {
+    const name = $("#zName").value.trim(); if(!name){ alert("Bitte eintragen, was es ist."); return; }
+    const daten = {name, art:$("#zArt").value, groesse:$("#zGroesse").value.trim(), zustand:$("#zZust").value,
+                   ort:$("#zOrt").value.trim(), kosten:$("#zKosten").value.trim(), info:$("#zInfo").value.trim()};
+    if(z) Object.assign(z, {...daten, ts:Date.now(), by:me});
+    else { const x = sZubehoer(daten); doc.zubehoer[x.id] = x; }
+    closeSheet(); await save(); render();
+  });
+}
+
 function vTeam(){
   let h = `<div class="card"><h2>Team &amp; Rollen</h2>`;
   h += PERSONEN.map(p => `<div class="term"><div class="who-badge">${esc(initials(p))}</div>
@@ -518,6 +680,8 @@ function bind(){
     else if(b.dataset.neu === "termin") fTermin();
     else if(b.dataset.neu === "turnier") fTurnier();
     else if(b.dataset.neu === "pflege") fTermin({art:b.dataset.art, wieder:Number(b.dataset.wieder)});
+    else if(b.dataset.neu === "futter") fFutter();
+    else if(b.dataset.neu === "zubehoer") fZubehoer();
     else fWichtig();
   });
   document.querySelectorAll("[data-del-proto]").forEach(b => b.onclick = async () => {
@@ -541,6 +705,21 @@ function bind(){
     }
     await save(); render(); });
   document.querySelectorAll("[data-plan]").forEach(b => b.onclick = () => { if(!me) return fWer(); fPlan(b.dataset.plan); });
+  document.querySelectorAll("[data-del-futter]").forEach(b => b.onclick = async () => {
+    if(!confirm("Futterzeit löschen?")) return; grab("futter", b.dataset.delFutter); await save(); render(); });
+  document.querySelectorAll("[data-fedit]").forEach(b => b.onclick = () => { if(!me) return fWer(); fFutter(b.dataset.fedit); });
+  document.querySelectorAll("[data-del-zub]").forEach(b => b.onclick = async () => {
+    if(!confirm("Teil aus der Liste nehmen?")) return; grab("zubehoer", b.dataset.delZub); await save(); render(); });
+  document.querySelectorAll("[data-zedit]").forEach(b => b.onclick = () => { if(!me) return fWer(); fZubehoer(b.dataset.zedit); });
+  document.querySelectorAll("[data-zset]").forEach(b => b.onclick = async () => {
+    const z = doc.zubehoer[b.dataset.zset]; if(!z) return;
+    z.zustand = b.dataset.zustand; z.ts = Date.now(); z.by = me; await save(); render(); });
+  document.querySelectorAll("[data-fut]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.fut, k = fKey(today(), id);
+    if(doc.futterlog[k]) delete doc.futterlog[k];
+    else doc.futterlog[k] = {id:k, slot:id, datum:today(), by:me, ts:Date.now()};
+    await save(); render(); });
+  document.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => { tab = b.dataset.goto; render(); });
   document.querySelectorAll("[data-woche]").forEach(b => b.onclick = () => { if(!me) return fWer(); fWoche(b.dataset.woche); });
   document.querySelectorAll("[data-als]").forEach(b => b.onclick = () => { me = b.dataset.als; localStorage.setItem("schoki_wer", me); render(); });
   document.querySelectorAll("[data-pf]").forEach(b => b.onclick = () => { pf = b.dataset.pf; render(); });

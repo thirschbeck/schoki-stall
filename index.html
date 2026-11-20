@@ -69,7 +69,7 @@ footer button{flex:1}
   <div class="hrow">
     <div>
       <div class="logo">Schoki <span>·</span> Stallplan</div>
-      <div class="sub" id="subline">Gemeinsamer Plan · Protokoll · Termine</div>
+      <div class="sub" id="subline">Gemeinsamer Plan · Protokoll · Termine · Turniere</div>
     </div>
     <button class="who" id="whoBtn">Wer?</button>
   </div>
@@ -80,6 +80,7 @@ footer button{flex:1}
   <button data-tab="woche">Woche</button>
   <button data-tab="proto">Protokoll</button>
   <button data-tab="termine">Termine</button>
+  <button data-tab="turniere">Turniere</button>
   <button data-tab="team">Team</button>
 </nav>
 <main id="main"></main>
@@ -98,19 +99,25 @@ const API    = "https://kvdb.io/" + BUCKET + "/" + KEY;
 const CODE   = "schoki";                        // Familien-Code (kann hier geändert werden)
 const POLL   = 15000;
 
-const PERSONEN = ["Annika","Marta","Vivienne","Marie","Hanna","Christiana","Thomas"];
-const ROLLEN = {"Annika":"Reitbeteiligung / Hauptperson","Marta":"Reitbeteiligung","Vivienne":"reitet Mi + Do mit",
-                "Marie":"Tochter · Mi + Do","Hanna":"Tochter · Mi + Do","Christiana":"Reitlehrerin","Thomas":"Orga"};
+const PERSONEN = ["Annika","Marta","Vivienne","Marie","Hanna","Thomas"];
+const ROLLEN = {"Annika":"Hauptperson · Reitbeteiligung","Marta":"Reitbeteiligung","Vivienne":"reitet mit",
+                "Marie":"Tochter · Mi + Do","Hanna":"Tochter · Mi + Do","Thomas":"Orga"};
 const AKTIV = ["Geführt (Dressur)","Longe","Ausritt","Bodenarbeit","Freispringen","Springen","Galopptraining",
                "Schrittrunde","Trabarbeit","Weide / Ruhe","Nur versorgt (Futter, Misten)","Eindecken","Sonstiges"];
 const TERMART = [["physio","🩺 Physio"],["hufschmied","🐴 Hufschmied / Beschlag"],["impfung","💉 Impfung"],
                  ["zahnarzt","🦷 Zahnarzt"],["tierarzt","🩺 Tierarzt"],["wurmkur","🐛 Wurmkur"],
                  ["sattel","🪑 Sattel / Ausrüstung"],["sonstiges","📌 Sonstiges"]];
+const WIEDER = [[0,"keine Wiederholung"],[4,"alle 4 Wochen"],[6,"alle 6 Wochen"],[8,"alle 8 Wochen"],
+                [12,"alle 12 Wochen"],[26,"alle 6 Monate"],[52,"jährlich"]];
+const PFLEGE = [["impfung",52,"Impfung – jährlich"],["hufschmied",6,"Beschlag / Hufe – alle 6 Wochen"],
+                ["wurmkur",12,"Wurmkur – alle 12 Wochen"],["zahnarzt",52,"Zahnkontrolle – jährlich"],
+                ["sattel",26,"Sattel / Ausrüstung – alle 6 Monate"]];
+const TSTAT = [["geplant","geplant"],["genannt","genannt"],["gelaufen","gelaufen"],["absage","abgesagt"]];
 const FEST = {3:{zeit:"15:00–16:00",hinweis:"Marie + Hanna"},4:{zeit:"15:30–16:30",hinweis:"Marie + Hanna"}};
 const WOCHENTAG = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
 
 /* ====== Zustand ====== */
-let doc = {v:1,stand:0,protokoll:{},termine:{},plan:{},woche:{},tomb:{},wichtig:null};
+let doc = {v:1,stand:0,protokoll:{},termine:{},turniere:{},plan:{},woche:{},tomb:{},wichtig:null};
 const grab = (g,id) => { doc.tomb[id] = Date.now(); delete doc[g][id]; };
 let me = localStorage.getItem("schoki_wer") || "";
 let pending = false, dirty = false, offline = false, codeOk = false;
@@ -149,7 +156,7 @@ function merge(r){
   if(!r || typeof r !== "object") return;
   const alt = doc.stand || 0;
   const newer = (a,b) => (b && (!a || (b.ts||0) > (a.ts||0))) ? b : a;
-  for(const g of ["protokoll","termine","plan"]){
+  for(const g of ["protokoll","termine","plan","turniere"]){
     doc[g] = doc[g] || {};
     for(const k of Object.keys(r[g]||{})) doc[g][k] = newer(doc[g][k], r[g][k]);
   }
@@ -157,7 +164,7 @@ function merge(r){
   if(r.wichtig && (!doc.wichtig || (r.wichtig.ts||0) > (doc.wichtig.ts||0))) doc.wichtig = r.wichtig;
   if((r.stand||0) > alt){
     /* Der andere Stand ist neuer: was dort fehlt und älter ist, wurde dort gelöscht. */
-    for(const g of ["protokoll","termine","plan"]){
+    for(const g of ["protokoll","termine","plan","turniere"]){
       for(const k of Object.keys(doc[g]||{})){
         if(!(r[g]||{})[k] && (doc[g][k].ts||0) < (r.stand||0) && !dirty) delete doc[g][k];
       }
@@ -165,7 +172,7 @@ function merge(r){
   }
   if((r.stand||0) > (doc.stand||0)) doc.stand = r.stand;
   const t = r.tomb||{}; for(const k of Object.keys(t)){
-    for(const g of ["protokoll","termine"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];
+    for(const g of ["protokoll","termine","turniere"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];
     if(!doc.plan[k] || (doc.plan[k].ts||0) < t[k]) delete doc.plan[k];
   }
 }
@@ -191,7 +198,26 @@ function sProtokoll(p){
 }
 function sTermin(p){
   return {id:uid(), art:p.art, datum:p.datum, zeit:p.zeit||"", wer:p.personen||[], info:p.info||"",
-          kosten:p.kosten||"", erledigt:false, by:me, ts:Date.now()};
+          kosten:p.kosten||"", wieder:Number(p.wieder||0), erledigt:false, by:me, ts:Date.now()};
+}
+function naechsterTermin(t, abDatum){
+  const wochen = Number(t.wieder||0); if(!wochen) return null;
+  const grund = abDatum || today();
+  let d = parse(t.datum);
+  if(iso(d) <= grund) d = parse(grund);
+  do { d.setDate(d.getDate() + wochen*7); } while(iso(d) <= grund);
+  return {id:uid(), art:t.art, datum:iso(d), zeit:t.zeit||"", wer:(t.wer||[]).slice(), info:t.info||"",
+          kosten:t.kosten||"", wieder:wochen, erledigt:false, vorher:t.id, by:me, ts:Date.now()};
+}
+function letzterTermin(art){
+  const alle = Object.values(doc.termine||{}).filter(t => t.art===art && t.erledigt)
+    .sort((a,b) => (b.datum||"").localeCompare(a.datum||""));
+  return alle[0] || null;
+}
+function sTurnier(p){
+  return {id:uid(), name:p.name, ort:p.ort||"", von:p.von, bis:p.bis||"", pruefung:p.pruefung||"",
+          nennung:p.nennung||"", personen:p.personen||[], status:p.status||"geplant",
+          kosten:p.kosten||"", info:p.info||"", by:me, ts:Date.now()};
 }
 
 /* ====== Rendern ====== */
@@ -204,6 +230,7 @@ function render(){
   else if(tab === "woche") m.innerHTML = vWoche();
   else if(tab === "proto") m.innerHTML = vProto();
   else if(tab === "termine") m.innerHTML = vTermine();
+  else if(tab === "turniere") m.innerHTML = vTurniere();
   else m.innerHTML = vTeam();
   bind();
 }
@@ -239,6 +266,17 @@ function vHeute(){
         <span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen"}</span></div>`;
     }).join("") : `<div class="empty">Keine Termine in den nächsten 14 Tagen.</div>`;
   h += `<button class="prim" data-neu="termin">Termin eintragen</button></div>`;
+  const tu = Object.values(doc.turniere||{})
+    .filter(t => t.status !== "gelaufen" && t.status !== "absage" && tage_bis(t.bis || t.von) >= 0)
+    .sort((a,b) => (a.von||"").localeCompare(b.von||"")).slice(0,4);
+  if(tu.length){
+    h += `<div class="card"><h2>Turniere</h2>` + tu.map(t => {
+      const d = tage_bis(t.von), n = t.nennung ? tage_bis(t.nennung) : null;
+      return `<div class="term"><div class="ic">🏆</div><div style="flex:1"><div class="t">${esc(t.name)}</div>
+        <div class="m">${dfmt(t.von)}${t.ort?" · "+esc(t.ort):""}${(t.personen||[]).length?" · "+(t.personen||[]).map(esc).join(", "):""}</div>
+        <div><span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage her":d===0?"heute":"in "+d+" Tagen"}</span>${n!==null?`<span class="tag ${n<=7?"warn":""}">Nennung: ${n<0?"abgelaufen":n===0?"heute fällig":"in "+n+" Tagen"}</span>`:""}</div></div></div>`;
+    }).join("") + `<button class="prim" data-neu="turnier">Turnier eintragen</button></div>`;
+  }
   return h;
 }
 function vWoche(){
@@ -274,6 +312,16 @@ function vProto(){
   h += `<button class="prim" data-neu="proto">Eintrag erfassen</button></div>`;
   return h;
 }
+function wiederText(w){ const x = WIEDER.find(a => a[0] === Number(w)); return x ? x[1] : "keine Wiederholung"; }
+function pflegeStand(art){
+  const wochen = (PFLEGE.find(p => p[0] === art) || [null,0])[1];
+  const erl = letzterTermin(art);
+  const offen = Object.values(doc.termine||{}).filter(t => t.art===art && !t.erledigt)
+    .sort((a,b) => (a.datum||"").localeCompare(b.datum||""));
+  let faellig = offen[0] ? offen[0].datum : "";
+  if(!faellig && erl && wochen){ const d = parse(erl.datum); d.setDate(d.getDate() + wochen*7); faellig = iso(d); }
+  return {wochen, erl, offen, faellig, naechster: offen[0] || null};
+}
 function vTermine(){
   const alle = Object.values(doc.termine||{}).sort((a,b) => a.datum.localeCompare(b.datum));
   const offen = alle.filter(t => !t.erledigt), erl = alle.filter(t => t.erledigt).reverse();
@@ -281,12 +329,47 @@ function vTermine(){
     return `<div class="term"><div class="ic">${esc((TERMART.find(a=>a[0]===t.art)||["","📌"])[1].slice(0,2))}</div>
       <div style="flex:1"><div class="t">${esc((TERMART.find(a=>a[0]===t.art)||["","Sonstiges"])[1].replace(/^\S+\s/,""))}${t.kosten?" · "+esc(t.kosten):""}</div>
       <div class="m">${dfmt(t.datum)}${t.zeit?" · "+esc(t.zeit):""}${(t.wer||[]).length?" · "+(t.wer||[]).map(esc).join(", "):""}${t.info?"\n"+esc(t.info):""}</div>
-      <div><span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen"}</span><span class="tag">von ${esc(t.by||"—")}</span></div></div>
+      <div><span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen"}</span>${t.wieder?`<span class="tag">↻ ${esc(wiederText(t.wieder))}</span>`:""}<span class="tag">von ${esc(t.by||"—")}</span></div></div>
       <div style="text-align:right"><button class="mini" data-erl="${t.id}">${t.erledigt?"offen":"erledigt"}</button><br><button class="mini" data-del-term="${t.id}">löschen</button></div></div>`; };
   let h = `<div class="card"><h2>Termine</h2>`;
   h += offen.length ? offen.map(zeile).join("") : `<div class="empty">Keine offenen Termine.</div>`;
   h += `<button class="prim" data-neu="termin">Termin eintragen</button></div>`;
+  h += `<div class="card"><h3>Wiederkehrende Pflege</h3>
+    <div class="dp">Impfung, Beschlag, Wurmkur und Co. laufen als Wiederholung: einmal abhaken – der nächste Termin entsteht automatisch.</div>`;
+  for(const [art, wochen, label] of PFLEGE){
+    const s = pflegeStand(art);
+    const d = s.faellig ? tage_bis(s.faellig) : null;
+    h += `<div class="term"><div class="ic">${esc((TERMART.find(a=>a[0]===art)||["","📌"])[1].slice(0,2))}</div>
+      <div style="flex:1"><div class="t">${esc(label)}</div>
+      <div class="m">${s.faellig ? "fällig "+dfmt(s.faellig)+" ("+(d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen")+")"+(s.erl?"\nzuletzt "+dfmt(s.erl.datum):"") : "noch nicht erfasst"}</div>
+      <div><span class="tag">↻ ${esc(wiederText(wochen))}</span>${s.naechster?"<span class=\"tag ok\">eingetragen</span>":`<span class="tag warn">nichts eingetragen</span>`}</div></div>
+      <button class="mini" data-neu="pflege" data-art="${art}" data-wieder="${wochen}">eintragen</button></div>`;
+  }
+  h += `</div>`;
   h += `<div class="card"><h3>Erledigt</h3>` + (erl.length ? erl.map(zeile).join("") : `<div class="empty">—</div>`) + `</div>`;
+  return h;
+}
+function vTurniere(){
+  const alle = Object.values(doc.turniere||{}).sort((a,b) => (a.von||"").localeCompare(b.von||""));
+  const offenStatus = t => t.status !== "gelaufen" && t.status !== "absage";
+  const kommend = alle.filter(t => offenStatus(t) && tage_bis(t.bis || t.von) >= 0);
+  const alt = alle.filter(t => !kommend.includes(t)).reverse();
+  const zeile = t => {
+    const d = tage_bis(t.von);
+    const n = t.nennung ? tage_bis(t.nennung) : null;
+    return `<div class="term"><div class="ic">🏆</div>
+      <div style="flex:1"><div class="t">${esc(t.name)}${t.pruefung?" · "+esc(t.pruefung):""}</div>
+      <div class="m">${dfmt(t.von)}${t.bis && t.bis!==t.von?" – "+dfmt(t.bis):""}${t.ort?" · "+esc(t.ort):""}${(t.personen||[]).length?"\nreitet: "+(t.personen||[]).map(esc).join(", "):""}${t.kosten?" · "+esc(t.kosten):""}${t.info?"\n"+esc(t.info):""}</div>
+      <div><span class="tag">${esc((TSTAT.find(s=>s[0]===t.status)||["geplant","geplant"])[1])}</span>
+      <span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage her":d===0?"heute":"in "+d+" Tagen"}</span>
+      ${n!==null?`<span class="tag ${n<=7?"warn":""}">Nennung: ${n<0?"abgelaufen":n===0?"heute fällig":"in "+n+" Tagen"}</span>`:""}</div></div>
+      <div style="text-align:right"><button class="mini" data-tset="${t.id}" data-status="${t.status==="gelaufen"?"geplant":"gelaufen"}">${t.status==="gelaufen"?"doch offen":"gelaufen"}</button><br><button class="mini" data-del-turn="${t.id}">löschen</button></div></div>`;
+  };
+  let h = `<div class="card"><h2>Turniere</h2>
+    <div class="dp">Hier steht, wann welches Turnier ist, wer reitet, was es kostet und bis wann genannt werden muss – eine Woche vor Nennungsschluss wird gewarnt.</div>`;
+  h += kommend.length ? kommend.map(zeile).join("") : `<div class="empty">Noch keine anstehenden Turniere eingetragen.</div>`;
+  h += `<button class="prim" data-neu="turnier">Turnier eintragen</button></div>`;
+  h += `<div class="card"><h3>Vorbei / abgesagt</h3>` + (alt.length ? alt.map(zeile).join("") : `<div class="empty">—</div>`) + `</div>`;
   return h;
 }
 function vTeam(){
@@ -340,11 +423,14 @@ function fProto(vorgabe){
     doc.protokoll[t.id] = t; closeSheet(); await save(); render();
   });
 }
-function fTermin(){
+function fTermin(vorgabe){
+  const v = vorgabe || {};
   sheet(`<h2>Termin eintragen</h2>
-    <label>Art</label><select id="tArt">${TERMART.map(a=>`<option value="${a[0]}">${a[1]}</option>`).join("")}</select>
+    <label>Art</label><select id="tArt">${TERMART.map(a=>`<option value="${a[0]}" ${v.art===a[0]?"selected":""}>${a[1]}</option>`).join("")}</select>
     <div class="row"><div><label>Datum</label><input type="date" id="tDatum" value="${today()}"></div>
       <div><label>Uhrzeit</label><input type="text" id="tZeit" placeholder="10:00"></div></div>
+    <label>Wiederholung</label><select id="tWieder">${WIEDER.map(w=>`<option value="${w[0]}" ${Number(v.wieder||0)===w[0]?"selected":""}>${w[1]}</option>`).join("")}</select>
+    <div class="dp" style="font-size:13px;color:var(--ink2)">Bei Wiederholung: Termin abhaken, danach entsteht der nächste Termin automatisch – für Impfung, Beschlag, Wurmkur und Co.</div>
     <label>Wer ist dabei?</label><div class="chips" id="tPers">${PERSONEN.map(p=>`<button class="chip" data-tp="${p}">${p}</button>`).join("")}</div>
     <label>Kosten / Honorar</label><input type="text" id="tKosten" placeholder="z. B. 120 €">
     <label>Notiz</label><textarea id="tInfo" placeholder="z. B. Zahnkontrolle, Praxis Dr. Mayr"></textarea>
@@ -355,8 +441,34 @@ function fTermin(){
   $("#tAb").addEventListener("click", closeSheet);
   $("#tOk").addEventListener("click", async () => {
     const t = sTermin({art:$("#tArt").value, datum:$("#tDatum").value||today(), zeit:$("#tZeit").value.trim(),
-      personen:[...sel], kosten:$("#tKosten").value.trim(), info:$("#tInfo").value.trim()});
+      wieder:$("#tWieder").value, personen:[...sel], kosten:$("#tKosten").value.trim(), info:$("#tInfo").value.trim()});
     doc.termine[t.id] = t; closeSheet(); await save(); render();
+  });
+}
+function fTurnier(){
+  sheet(`<h2>Turnier eintragen</h2>
+    <label>Turnier</label><input type="text" id="uName" placeholder="z. B. Hallenturnier Gräfelfing">
+    <label>Ort / Anlage</label><input type="text" id="uOrt" placeholder="z. B. Reitanlage Gräfelfing">
+    <div class="row"><div><label>Beginn</label><input type="date" id="uVon" value="${today()}"></div>
+      <div><label>Ende (optional)</label><input type="date" id="uBis"></div></div>
+    <label>Prüfung / Klasse</label><input type="text" id="uPruef" placeholder="z. B. E-Dressur, Stilspringen A">
+    <label>Nennungsschluss</label><input type="date" id="uNenn">
+    <label>Wer reitet?</label><div class="chips" id="uPers">${PERSONEN.map(p=>`<button class="chip" data-up="${p}">${p}</button>`).join("")}</div>
+    <label>Status</label><select id="uStat">${TSTAT.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("")}</select>
+    <label>Kosten / Startgeld</label><input type="text" id="uKosten" placeholder="z. B. 25 €">
+    <label>Notiz</label><textarea id="uInfo" placeholder="Box, Zeiten, wer fährt, Papiere …"></textarea>
+    <button class="prim" id="uOk">Speichern</button><br><button class="sec" style="width:100%;margin-top:8px" id="uAb">Abbrechen</button>`);
+  const sel = new Set();
+  $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-up]");
+    if(b){ const p = b.dataset.up; if(sel.has(p)){sel.delete(p);b.classList.remove("on");} else {sel.add(p);b.classList.add("on");} } });
+  $("#uAb").addEventListener("click", closeSheet);
+  $("#uOk").addEventListener("click", async () => {
+    const name = $("#uName").value.trim();
+    if(!name){ alert("Bitte einen Turniernamen eintragen."); return; }
+    const t = sTurnier({name, ort:$("#uOrt").value.trim(), von:$("#uVon").value||today(), bis:$("#uBis").value,
+      pruefung:$("#uPruef").value.trim(), nennung:$("#uNenn").value, personen:[...sel], status:$("#uStat").value,
+      kosten:$("#uKosten").value.trim(), info:$("#uInfo").value.trim()});
+    doc.turniere[t.id] = t; closeSheet(); await save(); render();
   });
 }
 function fPlan(datum){
@@ -409,6 +521,8 @@ function bind(){
     if(!me){ fWer(); return; }
     if(b.dataset.neu === "proto") fProto(b.dataset.datum);
     else if(b.dataset.neu === "termin") fTermin();
+    else if(b.dataset.neu === "turnier") fTurnier();
+    else if(b.dataset.neu === "pflege") fTermin({art:b.dataset.art, wieder:Number(b.dataset.wieder)});
     else fWichtig();
   });
   document.querySelectorAll("[data-del-proto]").forEach(b => b.onclick = async () => {
@@ -416,8 +530,21 @@ function bind(){
     grab("protokoll", b.dataset.delProto); await save(); render(); });
   document.querySelectorAll("[data-del-term]").forEach(b => b.onclick = async () => {
     if(!confirm("Termin löschen?")) return; grab("termine", b.dataset.delTerm); await save(); render(); });
+  document.querySelectorAll("[data-del-turn]").forEach(b => b.onclick = async () => {
+    if(!confirm("Turnier löschen?")) return; grab("turniere", b.dataset.delTurn); await save(); render(); });
+  document.querySelectorAll("[data-tset]").forEach(b => b.onclick = async () => {
+    const t = doc.turniere[b.dataset.tset]; if(!t) return;
+    t.status = b.dataset.status; t.ts = Date.now(); t.by = me; await save(); render(); });
   document.querySelectorAll("[data-erl]").forEach(b => b.onclick = async () => {
-    const t = doc.termine[b.dataset.erl]; t.erledigt = !t.erledigt; t.ts = Date.now(); t.by = me; await save(); render(); });
+    const t = doc.termine[b.dataset.erl];
+    const wirdErledigt = !t.erledigt;
+    t.erledigt = !t.erledigt; t.ts = Date.now(); t.by = me;
+    if(wirdErledigt && Number(t.wieder||0) > 0){
+      const n = naechsterTermin(t, today());
+      const schonDa = Object.values(doc.termine||{}).some(x => x.vorher === t.id && !x.erledigt);
+      if(n && !schonDa) doc.termine[n.id] = n;
+    }
+    await save(); render(); });
   document.querySelectorAll("[data-plan]").forEach(b => b.onclick = () => { if(!me) return fWer(); fPlan(b.dataset.plan); });
   document.querySelectorAll("[data-woche]").forEach(b => b.onclick = () => { if(!me) return fWer(); fWoche(b.dataset.woche); });
   document.querySelectorAll("[data-als]").forEach(b => b.onclick = () => { me = b.dataset.als; localStorage.setItem("schoki_wer", me); render(); });

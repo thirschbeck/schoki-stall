@@ -1,5 +1,5 @@
 /* Schoki-Stallplan – Service Worker: App-Hülle offline halten, Daten immer live */
-const CACHE = "schoki-v5";
+const CACHE = "schoki-v6";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon.svg"];
 
 self.addEventListener("install", e => {

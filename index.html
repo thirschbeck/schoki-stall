@@ -142,7 +142,7 @@ const ZART = [["sattel","Sattel"],["zaumzeug","Zaumzeug / Trense"],["halfter","H
 const ZUST = [["ok","in Ordnung"],["reparatur","reparaturbedürftig"],["defekt","defekt"],["weg","ausgemustert"]];
 
 /* ====== Zustand ====== */
-let doc = {v:2,stand:0,protokoll:{},termine:{},gesundheit:{},betreuungszusagen:{},fragen:{},antworten:{},pushabos:{},turniere:{},futter:{},futterlog:{},zubehoer:{},kontakte:{},plan:{},woche:{},tomb:{},wichtig:null};
+let doc = {v:2,stand:0,protokoll:{},termine:{},gesundheit:{},betreuungszusagen:{},fragen:{},antworten:{},pushabos:{},geraete:{},turniere:{},futter:{},futterlog:{},zubehoer:{},kontakte:{},plan:{},woche:{},tomb:{},wichtig:null};
 let verein = null;
 const grab = (g,id) => { doc.tomb[id] = Date.now(); delete doc[g][id]; };
 let me = localStorage.getItem("schoki_wer") || "";
@@ -188,6 +188,7 @@ async function pull(first){
     else localStorage.setItem("schoki_cache", JSON.stringify(doc));
     if(!dirty) setSync("synchron · Stand " + rel(doc.stand));
   }catch(e){ offline = true; setSync("offline – Daten liegen auf diesem Gerät"); }
+  if(me) notiereNutzung(me);
   await ladeVerein();
   render();
 }
@@ -290,6 +291,61 @@ function aboAusschalten(id, env){
 const istIOS = () => typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent || "");
 const alsApp = () => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
 
+/* ====== Nutzungsbestätigung je Person (doc.geraete) ======
+   Der Haken bedeutet: Diese Person hat in der App den eigenen Namen bestätigt
+   und/oder die Mitteilungen freigegeben. Er bedeutet NICHT, dass die App
+   installiert oder eine Nachricht gelesen wurde. Reines Öffnen der App zählt
+   nicht als Bestätigung. Gespeichert werden nur Name, Zeitpunkt der ersten
+   Bestätigung, Freigabestatus und letzte Nutzung – keine Telefonnummern,
+   Geräte-IDs, Endpunkte oder Push-Schlüssel. */
+const NUTZ_HINWEIS = "Der Haken bedeutet: Diese Person hat in der App den eigenen Namen bestätigt und/oder die Mitteilungen freigegeben. Er bedeutet NICHT, dass die App installiert wurde oder eine Nachricht gelesen wurde. Reines Öffnen der App zählt nicht.";
+function geraetFuer(person){
+  return Object.values(doc.geraete||{}).find(g => g && g.person === person) || null;
+}
+function nutzungBestaetigt(person){ return !!geraetFuer(person); }
+function anzahlBestaetigt(){ return PERSONEN.filter(nutzungBestaetigt).length; }
+/* Upsert je Person: eigener Record, Erstbestätigung (ts) bleibt erhalten. */
+function bestaetigeNutzung(person, opts){
+  if(!PERSONEN.includes(person)) return null;
+  const jetzt = Date.now();
+  let g = geraetFuer(person);
+  if(!g){
+    const id = uid();
+    g = {id, person, ts:jetzt, quelle:"app", mitteilung:false, letzteNutzung:jetzt};
+    doc.geraete[id] = g;
+  } else {
+    g.letzteNutzung = jetzt;
+  }
+  if(opts && opts.mitteilung) g.mitteilung = true;
+  return g;
+}
+/* Nur für bereits bestätigte Personen: merkt die letzte App-Nutzung, ohne zu bestätigen. */
+function notiereNutzung(person){
+  const g = geraetFuer(person);
+  if(g) g.letzteNutzung = Date.now();
+  return g;
+}
+/* Name wählen und speichern – die Handlung des Nutzers, keine bloße Anzeige. */
+function waehlePerson(person){
+  if(!PERSONEN.includes(person)) return null;
+  me = person; localStorage.setItem("schoki_wer", me);
+  return bestaetigeNutzung(person);
+}
+const gDatum = ts => { const d = new Date(ts); return String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+"."+d.getFullYear(); };
+function vGeraete(){
+  const zeilen = PERSONEN.map(p => {
+    const g = geraetFuer(p);
+    return g
+      ? `<div class="term"><div class="ic" style="background:#E4F3EA;color:var(--ok);font-weight:800">✓</div><div style="flex:1"><div class="t">${esc(p)}</div><div class="m">bestätigt am ${esc(gDatum(g.ts))}${g.mitteilung?" · Mitteilungen freigegeben":""}</div></div></div>`
+      : `<div class="term"><div class="ic">○</div><div style="flex:1"><div class="t">${esc(p)}</div><div class="m">noch nicht bestätigt</div></div></div>`;
+  }).join("");
+  return `<div class="card"><h2>Wer nutzt die App</h2><div class="dp">${NUTZ_HINWEIS}</div><div class="dp"><b>Bestätigt: ${anzahlBestaetigt()} von ${PERSONEN.length}</b></div>${zeilen}</div>`;
+}
+function vNutzungHeute(){
+  const best = PERSONEN.filter(nutzungBestaetigt);
+  return `<div class="card"><h2>App bestätigt</h2><div class="dp"><b>Bestätigt: ${best.length} von ${PERSONEN.length}</b>${best.length?" · "+best.map(esc).join(", "):" · noch niemand"}</div><div class="dp">${NUTZ_HINWEIS}</div></div>`;
+}
+
 /* ====== Erfassung ====== */
 function sProtokoll(p){
   return {id:uid(), datum:p.datum, personen:p.personen, zeit:p.zeit, aktivitaet:p.aktivitaet,
@@ -384,6 +440,7 @@ function vHeute(){
   h += vNachrichtenHeute();
   if(w) h += `<div class="banner"><b>Aushang von ${esc(w.by)}:</b> ${esc(w.text)}</div>`;
   h += vUeberblick();
+  h += vNutzungHeute();
   h += `<div class="card"><h2>Heute · ${dfmt(n)}</h2>
     <div class="dp">${p ? `<b>Geplant:</b> ${(p.personen||[]).join(", ")||"—"}${p.zeit?" · "+esc(p.zeit):""}${p.aktivitaet?" · "+esc(p.aktivitaet):""}${p.aus?' <span class="tag">Wochenregel</span>':''}`
     : `<span class="tag warn">noch nichts eingetragen</span> Tägliche Betreuung ist offen.`}</div>
@@ -914,6 +971,7 @@ function vTeam(){
     Speicher: ${esc(BUCKET.slice(0,8))}… · Abgleich alle ${POLL/1000} Sekunden.</div>
     <button class="sec" id="btnNow" style="margin-top:10px">Jetzt abgleichen</button></div>`;
   h += vKontakte();
+  h += vGeraete();
   return h;
 }
 
@@ -940,7 +998,7 @@ function fWer(){
   let sel = me;
   $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-w]"); if(b){ sel = b.dataset.w;
     $("#chipsWer").querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.w === sel)); } });
-  $("#werOk").addEventListener("click", () => { if(sel){ me = sel; localStorage.setItem("schoki_wer", me); closeSheet(); render(); } });
+  $("#werOk").addEventListener("click", async () => { if(sel){ waehlePerson(sel); closeSheet(); render(); await save(); } });
 }
 function fProto(vorgabe){
   const daten = {};
@@ -1094,7 +1152,10 @@ function bind(){
     if(perm !== "granted"){ try{ perm = await Notification.requestPermission(); }catch(e){ perm = Notification.permission; } }
     if(perm !== "granted"){ alert("Ohne Erlaubnis können keine Mitteilungen ankommen. Du kannst es später erneut versuchen."); return; }
     const r = await geraetAktivieren(me, {crypto, navigator, Notification});
-    if(r.aktiv){ await save(); render(); alert("Dieses Handy ist angemeldet. Die Zustellung wird noch getestet."); }
+    if(r.aktiv){
+      bestaetigeNutzung(me, {mitteilung:true});   // Freigabe der Mitteilungen bestätigt die Nutzung mit
+      await save(); render(); alert("Dieses Handy ist angemeldet. Die Zustellung wird noch getestet.");
+    }
     else alert("Anmeldung nicht möglich: " + (r.grund || "unbekannt"));
   });
   $$('[data-pushaus]').forEach(b=>b.onclick=async()=>{ if(!me) return fWer(); if(aboAusschalten(b.dataset.pushaus,{navigator})){ await save(); render(); } });
@@ -1153,7 +1214,7 @@ function bind(){
     await save(); render(); });
   document.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => { tab = b.dataset.goto; render(); });
   document.querySelectorAll("[data-woche]").forEach(b => b.onclick = () => { if(!me) return fWer(); fWoche(b.dataset.woche); });
-  document.querySelectorAll("[data-als]").forEach(b => b.onclick = () => { me = b.dataset.als; localStorage.setItem("schoki_wer", me); render(); });
+  document.querySelectorAll("[data-als]").forEach(b => b.onclick = async () => { waehlePerson(b.dataset.als); render(); await save(); });
   document.querySelectorAll("[data-pf]").forEach(b => b.onclick = () => { pf = b.dataset.pf; render(); });
   const now = $("#btnNow"); if(now) now.onclick = async () => { await pull(); };
 }

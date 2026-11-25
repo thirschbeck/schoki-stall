@@ -4,6 +4,6 @@
   "version": "1.0.0",
   "description": "Schoki-Stallplan – Offline-fähige Stallplan-/Kommunikations-App (reines HTML + Service Worker).",
   "scripts": {
-    "test": "node --test tests/app.test.cjs tests/sw.test.cjs"
+    "test": "node --test tests/app.test.cjs tests/sw.test.cjs tests/geraete.test.cjs"
   }
 }

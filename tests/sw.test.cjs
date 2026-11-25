@@ -38,7 +38,7 @@ test('Service Worker kennt Push- und Klick-Behandlung und liefert die neue App-V
   const s = sw();
   assert.ok(s.h.has('push'), 'push-Handler fehlt');
   assert.ok(s.h.has('notificationclick'), 'notificationclick-Handler fehlt');
-  assert.match(QUELLE, /schoki-v11/, 'Cache-Version muss erhöht sein');
+  assert.match(QUELLE, /schoki-v12/, 'Cache-Version muss erhöht sein');
   assert.match(QUELLE, /push-config\.js/, 'push-config.js muss offline mitgecacht werden');
 });
 

@@ -82,6 +82,8 @@ footer button{flex:1}
   <button data-tab="verein">Verein</button>
   <button data-tab="proto">Protokoll</button>
   <button data-tab="termine">Termine</button>
+  <button data-tab="gesundheit">Gesundheit</button>
+  <button data-tab="nachrichten">Nachrichten</button>
   <button data-tab="turniere">Turniere</button>
   <button data-tab="zubehoer">Zubehör</button>
   <button data-tab="team">Team</button>
@@ -95,6 +97,7 @@ footer button{flex:1}
 
 <div class="modal hidden" id="modal"><div class="sheet" id="sheet"></div></div>
 
+<script src="push-config.js"></script>
 <script>
 /* ====== Konfiguration ====== */
 const BUCKET = "HuCDKH1zjs9QPg6yTPeVqH";       // gemeinsamer Speicher (kvdb.io)
@@ -122,12 +125,12 @@ const VERTRAEGE = [
 const AKTIV = ["Geführt (Dressur)","Longe","Ausritt","Bodenarbeit","Freispringen","Springen","Galopptraining",
                "Schrittrunde","Trabarbeit","Weide / Ruhe","Nur versorgt (Futter, Misten)","Eindecken","Sonstiges"];
 const TERMART = [["physio","🩺 Physio"],["hufschmied","🐴 Hufschmied / Beschlag"],["impfung","💉 Impfung"],
-                 ["zahnarzt","🦷 Zahnarzt"],["tierarzt","🩺 Tierarzt"],["wurmkur","🐛 Wurmkur"],
+                 ["zahnarzt","🦷 Zahnarzt"],["tierarzt","🩺 Tierarzt"],["wurmkur","🐛 Wurmkur"],["kotprobe","🔬 Kotprobe / Befund"],
                  ["sattel","🪑 Sattel / Ausrüstung"],["sonstiges","📌 Sonstiges"]];
 const WIEDER = [[0,"keine Wiederholung"],[4,"alle 4 Wochen"],[6,"alle 6 Wochen"],[8,"alle 8 Wochen"],
                 [12,"alle 12 Wochen"],[26,"alle 6 Monate"],[52,"jährlich"]];
-const PFLEGE = [["impfung",52,"Impfung – jährlich"],["hufschmied",6,"Beschlag / Hufe – alle 6 Wochen"],
-                ["wurmkur",12,"Wurmkur – alle 12 Wochen"],["zahnarzt",52,"Zahnkontrolle – jährlich"],
+const PFLEGE = [["impfung",0,"Impfung – nur tierärztlich bestätigt"],["hufschmied",6,"Beschlag / Hufe – alle 6 Wochen"],
+                ["wurmkur",0,"Wurmkur / Kotprobe – nur tierärztlich bestätigt"],["zahnarzt",52,"Zahnkontrolle – jährlich"],
                 ["sattel",26,"Sattel / Ausrüstung – alle 6 Monate"]];
 const TSTAT = [["geplant","geplant"],["genannt","genannt"],["gelaufen","gelaufen"],["absage","abgesagt"]];
 const FEST = {3:{zeit:"15:00–16:00",hinweis:"Marie + Hanna"},4:{zeit:"15:30–16:30",hinweis:"Marie + Hanna"}};
@@ -139,14 +142,16 @@ const ZART = [["sattel","Sattel"],["zaumzeug","Zaumzeug / Trense"],["halfter","H
 const ZUST = [["ok","in Ordnung"],["reparatur","reparaturbedürftig"],["defekt","defekt"],["weg","ausgemustert"]];
 
 /* ====== Zustand ====== */
-let doc = {v:1,stand:0,protokoll:{},termine:{},turniere:{},futter:{},futterlog:{},zubehoer:{},kontakte:{},plan:{},woche:{},tomb:{},wichtig:null};
+let doc = {v:2,stand:0,protokoll:{},termine:{},gesundheit:{},betreuungszusagen:{},fragen:{},antworten:{},pushabos:{},turniere:{},futter:{},futterlog:{},zubehoer:{},kontakte:{},plan:{},woche:{},tomb:{},wichtig:null};
 let verein = null;
 const grab = (g,id) => { doc.tomb[id] = Date.now(); delete doc[g][id]; };
 let me = localStorage.getItem("schoki_wer") || "";
 let pending = false, dirty = false, offline = false, codeOk = false;
+let nachrichtenBezug = null;
 
 /* ====== Hilfen ====== */
 const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
 const iso = d => { const x = new Date(d); return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"); };
 const today = () => iso(new Date());
 const parse = s => { const [y,m,t] = s.split("-").map(Number); return new Date(y,m-1,t); };
@@ -179,33 +184,47 @@ async function pull(first){
       merge(remote);
       offline = false;
     }
-    setSync("synchron · Stand " + rel(doc.stand));
+    if(dirty) await push();
+    else localStorage.setItem("schoki_cache", JSON.stringify(doc));
+    if(!dirty) setSync("synchron · Stand " + rel(doc.stand));
   }catch(e){ offline = true; setSync("offline – Daten liegen auf diesem Gerät"); }
   await ladeVerein();
   render();
 }
 function merge(r){
   if(!r || typeof r !== "object") return;
-  const alt = doc.stand || 0;
   const newer = (a,b) => (b && (!a || (b.ts||0) > (a.ts||0))) ? b : a;
-  for(const g of ["protokoll","termine","turniere","futter","futterlog","zubehoer","kontakte","plan"]){
-    doc[g] = doc[g] || {};
-    for(const k of Object.keys(r[g]||{})) doc[g][k] = newer(doc[g][k], r[g][k]);
+  const map = x => x && typeof x === "object" && !Array.isArray(x);
+  const sicher = k => !["__proto__","prototype","constructor"].includes(k);
+  /* Auch zukünftige Record-Collections erhalten; fehlende Felder bedeuten nie Löschen. */
+  for(const g of Object.keys(r).filter(sicher)){
+    if(["v","stand","tomb","wichtig"].includes(g)) continue;
+    if(map(r[g])){
+      if(!map(doc[g])) doc[g] = {};
+      for(const k of Object.keys(r[g]).filter(sicher)){
+        if(g === "antworten" && doc[g][k]) continue; // Antworten werden nie bearbeitet.
+        doc[g][k] = newer(doc[g][k], r[g][k]);
+      }
+    } else if(!(g in doc)) doc[g] = r[g];
   }
-  if(r.woche) for(const k of Object.keys(r.woche)) doc.woche[k] = newer(doc.woche[k], r.woche[k]);
-  if(r.wichtig && (!doc.wichtig || (r.wichtig.ts||0) > (doc.wichtig.ts||0))) doc.wichtig = r.wichtig;
-  /* Löschungen wandern ausschließlich über Grabsteine (tomb). Fehlte ein Eintrag im
-     neueren Stand, wurde er dort nicht zwingend gelöscht – ein Gerät kann vor dem
-     Abgleich gespeichert haben. Deshalb wird hier nie allein wegen Fehlens gelöscht. */
-  if((r.stand||0) > (doc.stand||0)) doc.stand = r.stand;
-  const t = r.tomb||{}; for(const k of Object.keys(t)){
-    for(const g of ["protokoll","termine","turniere","futter","futterlog","zubehoer","kontakte"]) if(!doc[g][k] || (doc[g][k].ts||0) < t[k]) delete doc[g][k];
-    if(!doc.plan[k] || (doc.plan[k].ts||0) < t[k]) delete doc.plan[k];
-  }
+  if(r.wichtig) doc.wichtig = newer(doc.wichtig, r.wichtig);
+  doc.v = Math.max(doc.v||1, r.v||1);
+  doc.stand = Math.max(doc.stand||0, r.stand||0);
+  doc.tomb = doc.tomb || {};
+  for(const k of Object.keys(r.tomb||{}).filter(sicher)) doc.tomb[k] = Math.max(doc.tomb[k]||0, r.tomb[k]||0);
+  /* Lokale UND fremde Grabsteine bleiben erhalten und gelten auch für neue Collections. */
+  for(const g of Object.keys(doc).filter(g => !["tomb","wichtig"].includes(g) && map(doc[g])))
+    for(const k of Object.keys(doc.tomb))
+      if(doc[g][k] && (doc[g][k].ts||0) <= doc.tomb[k]) delete doc[g][k];
 }
 async function push(){
-  doc.stand = Date.now();
   try{
+    /* Kein blinder POST aus leerem/älterem Cache. Kein Transaktionsersatz:
+       konkurrierende alte Clients können weiterhin den Gesamtspeicher ersetzen. */
+    const aktuell = await fetch(API + "?_=" + Date.now(), {cache:"no-store"});
+    if(aktuell.ok) merge(await aktuell.json());
+    else if(aktuell.status !== 404) throw new Error(aktuell.status);
+    doc.stand = Date.now();
     const r = await fetch(API, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(doc)});
     if(!r.ok) throw new Error(r.status);
     offline = false; dirty = false; localStorage.setItem("schoki_cache", JSON.stringify(doc));
@@ -218,17 +237,85 @@ async function push(){
 function setSync(t){ $("#syncTxt").textContent = t; $("#dot").className = "dot" + (offline?" off":""); }
 const save = async () => { dirty = true; await push(); };
 
+/* ====== Geräte-Benachrichtigungen (verschlüsseltes Abo) ======
+   Kein automatischer WhatsApp-Versand. Push geht erst nach ausdrücklicher
+   Geräteaktivierung und Erlaubnis des Nutzers auf dessen eigenem Handy.
+   Im gemeinsamen Speicher liegt nur ein verschlüsseltes Abo, kein Klartext-Endpoint. */
+const PUSHK = (typeof window !== "undefined" && window.SCHOKI_PUSH) || {version:1,vapidPublicKey:"",subscriptionPublicKey:""};
+const b64u = u8 => btoa(String.fromCharCode.apply(null, u8)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+const unb64u = s => Uint8Array.from(atob(String(s).replace(/-/g,"+").replace(/_/g,"/")), c => c.charCodeAt(0));
+async function aboBauen(p){
+  const c = p.crypto || (typeof crypto !== "undefined" ? crypto : null);
+  if(!c || !c.subtle) throw new Error("Verschlüsselung nicht verfügbar");
+  const schluessel = await c.subtle.generateKey({name:"AES-GCM", length:256}, true, ["encrypt"]);
+  const iv = c.getRandomValues(new Uint8Array(12));
+  const roh = new Uint8Array(await c.subtle.exportKey("raw", schluessel));
+  const klartext = new TextEncoder().encode(JSON.stringify({person:p.person, subscription:p.subscription}));
+  const ct = new Uint8Array(await c.subtle.encrypt({name:"AES-GCM", iv}, schluessel, klartext));
+  const rsa = await c.subtle.importKey("spki", unb64u(p.publicKey), {name:"RSA-OAEP", hash:"SHA-256"}, false, ["encrypt"]);
+  const wrapped = new Uint8Array(await c.subtle.encrypt({name:"RSA-OAEP"}, rsa, roh));
+  return {id:uid(), person:p.person, ts:Date.now(), version:1, iv:b64u(iv), ciphertext:b64u(ct), wrappedKey:b64u(wrapped)};
+}
+async function geraetAktivieren(person, env){
+  const N = (env && env.Notification) || (typeof Notification !== "undefined" ? Notification : null);
+  if(!N || N.permission !== "granted") return {aktiv:false, grund:"Erlaubnis nicht erteilt"};
+  const nav = (env && env.navigator) || (typeof navigator !== "undefined" ? navigator : null);
+  const c = (env && env.crypto) || (typeof crypto !== "undefined" ? crypto : null);
+  if(!nav || !nav.serviceWorker || !nav.serviceWorker.ready) return {aktiv:false, grund:"Kein Service Worker"};
+  const reg = await nav.serviceWorker.ready;
+  if(!reg.pushManager) return {aktiv:false, grund:"Kein Push-Dienst"};
+  let sub = await reg.pushManager.getSubscription();
+  if(!sub) sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:unb64u(PUSHK.vapidPublicKey)});
+  const rec = await aboBauen({subscription:(sub.toJSON ? sub.toJSON() : sub), person, publicKey:PUSHK.subscriptionPublicKey, crypto:c});
+  doc.pushabos[rec.id] = rec;
+  return {aktiv:true, id:rec.id};
+}
+function aboStatus(person){
+  return Object.values(doc.pushabos||{}).some(a => a.person === person)
+    ? "Gerät angemeldet – Zustellung erst nach Test bestätigt" : "";
+}
+/* Eigenes Abo ausschalten: nur eigene Zuordnung, fremde Abos bleiben unangetastet. */
+function aboAusschalten(id, env){
+  const rec = (doc.pushabos||{})[id];
+  if(!rec || rec.person !== me) return false;
+  grab("pushabos", id);
+  const nav = (env && env.navigator) || (typeof navigator !== "undefined" ? navigator : null);
+  try{
+    if(nav && nav.serviceWorker && nav.serviceWorker.ready)
+      nav.serviceWorker.ready.then(r => r.pushManager && r.pushManager.getSubscription && r.pushManager.getSubscription())
+        .then(s => { if(s && s.unsubscribe) return s.unsubscribe(); }).catch(() => {});
+  }catch(e){}
+  return true;
+}
+const istIOS = () => typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent || "");
+const alsApp = () => typeof window !== "undefined" && window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+
 /* ====== Erfassung ====== */
 function sProtokoll(p){
   return {id:uid(), datum:p.datum, personen:p.personen, zeit:p.zeit, aktivitaet:p.aktivitaet,
           dauer:p.dauer, wie:p.wie||"", note:p.note||"", by:me, ts:Date.now()};
 }
 function sTermin(p){
+  if(!datumOK(p.datum)) throw new Error("Bitte ein gültiges Termindatum eintragen.");
+  const med=medizinisch(p.art),wochen=Number(p.wieder||0);
+  if(!Number.isInteger(wochen) || wochen<0) throw new Error("Bitte Intervall prüfen.");
+  if(med && wochen && !p.wiederQuelle?.trim()) throw new Error("Für das Intervall fehlt die tierärztliche Bestätigung.");
+  if(med && p.folgeDatum && (!datumOK(p.folgeDatum) || p.folgeDatum<=p.datum || !p.folgeQuelle?.trim())) throw new Error("Nächste Fälligkeit und tierärztlichen Beleg prüfen.");
   return {id:uid(), art:p.art, datum:p.datum, zeit:p.zeit||"", wer:p.personen||[], info:p.info||"",
-          kosten:p.kosten||"", wieder:Number(p.wieder||0), erledigt:false, by:me, ts:Date.now()};
+          kosten:p.kosten||"", wieder:wochen,wiederQuelle:med?p.wiederQuelle||"":"",folgeDatum:med?p.folgeDatum||"":"",folgeQuelle:med?p.folgeQuelle||"":"", organisation:PERSONEN.includes(p.organisation)?p.organisation:"",
+          status:["geplant","angefragt","bestätigt"].includes(p.status)?p.status:"geplant", erledigt:false, by:me, ts:Date.now()};
 }
+const medizinisch = art => ["impfung","wurmkur","kotprobe"].includes(art);
 function naechsterTermin(t, abDatum){
-  const wochen = Number(t.wieder||0); if(!wochen) return null;
+  const wochen = Number(t.wieder||0);
+  if(medizinisch(t.art)){
+    let datum = t.folgeQuelle && t.folgeDatum > t.datum ? t.folgeDatum : "";
+    if(!datum && wochen > 0 && t.wiederQuelle){ const d = parse(t.datum); d.setDate(d.getDate()+wochen*7); datum = iso(d); }
+    if(!datum) return null;
+    return {...t, id:uid(), datum, erledigt:false, status:"geplant", vorher:t.id,
+      folgeDatum:"", folgeQuelle:"", by:me, ts:Date.now()};
+  }
+  if(!wochen) return null;
   const grund = abDatum || today();
   let d = parse(t.datum);
   if(iso(d) <= grund) d = parse(grund);
@@ -271,6 +358,8 @@ function render(){
   else if(tab === "woche") m.innerHTML = vWoche();
   else if(tab === "proto") m.innerHTML = vProto();
   else if(tab === "termine") m.innerHTML = vTermine();
+  else if(tab === "gesundheit") m.innerHTML = vGesundheit();
+  else if(tab === "nachrichten") m.innerHTML = vNachrichten();
   else if(tab === "turniere") m.innerHTML = vTurniere();
   else if(tab === "futter") m.innerHTML = vFutter();
   else if(tab === "verein") m.innerHTML = vVerein();
@@ -289,7 +378,10 @@ function vHeute(){
   const n = today(), e = zuletzt(n), p = planTag(n), w = (doc.wichtig && (Date.now()-(doc.wichtig.ts||0)) < 7*86400000) ? doc.wichtig : null;
   const faellig = Object.values(doc.termine||{}).filter(t => !t.erledigt && tage_bis(t.datum) <= 14)
                     .sort((a,b) => a.datum.localeCompare(b.datum));
-  let h = "";
+  const morgen = new Date(parse(n)); morgen.setDate(morgen.getDate()+1);
+  let h = vBetreuung(n,"HEUTE") + vBetreuung(iso(morgen),"MORGEN");
+  h += `<div class="card"><h2>Wochenrhythmus Montag bis Sonntag</h2><div class="dp">Annika und das Team können im Reiter Woche den dauerhaften Ablauf eintragen: wann, mit wem und wie Schoki bewegt wird. Wochenvorlage und Unterricht sind Planung, keine Betreuungszusage. Abweichungen am jeweiligen Tag bearbeiten; verbindliche Übernahme separat bestätigen.</div><button class="prim" data-goto="woche">Wochenrhythmus / Woche bearbeiten</button></div>`;
+  h += vNachrichtenHeute();
   if(w) h += `<div class="banner"><b>Aushang von ${esc(w.by)}:</b> ${esc(w.text)}</div>`;
   h += vUeberblick();
   h += `<div class="card"><h2>Heute · ${dfmt(n)}</h2>
@@ -337,10 +429,128 @@ function vHeute(){
   }
   return h;
 }
+/* Fragen und Antworten: eine Antwort verändert weder Termin, Plan noch Selbstzusage. */
+function sFrage(p){
+  const an=[...new Set(p.an||[])].filter(x=>PERSONEN.includes(x));
+  if(!an.length) throw new Error("Bitte mindestens einen Empfänger auswählen.");
+  if(!PERSONEN.includes(me) || !p.text?.trim()) throw new Error("Bitte Namen wählen und eine Frage schreiben.");
+  if(p.datum && !datumOK(p.datum)) throw new Error("Bitte Datum prüfen.");
+  if(p.termin && !doc.termine[p.termin]) throw new Error("Termin ist nicht mehr vorhanden.");
+  const thema=["impfung","wurmkur","kotprobe","betreuung"].includes(p.thema)?p.thema:"";
+  return {id:uid(),text:p.text.trim(),an,termin:p.termin||"",thema,datum:p.datum||"",by:me,ts:Date.now(),status:"offen",statusTs:0};
+}
+function antwortenZu(id){ return Object.values(doc.antworten||{}).filter(a=>a.frage===id).sort((a,b)=>a.ts-b.ts || a.id.localeCompare(b.id)); }
+function antworte(id,text){
+  if(!doc.fragen[id] || !PERSONEN.includes(me) || !text?.trim()) throw new Error("Bitte Namen wählen und eine Antwort schreiben.");
+  const a=Object.freeze({id:uid(),frage:id,text:text.trim(),by:me,ts:Date.now()}); doc.antworten[a.id]=a; return a;
+}
+function frageStatus(q){
+  const as=antwortenZu(q.id),letzt=as[as.length-1];
+  if(q.statusTs && (!letzt || q.statusTs >= letzt.ts || q.status==="erledigt")) return q.status;
+  return as.length?"beantwortet":"offen";
+}
+function setFrageStatus(id,status){
+  const q=doc.fragen[id]; if(!q || !["offen","beantwortet","erledigt"].includes(status)) return false;
+  doc.fragen[id]={...q,status,statusTs:Date.now(),ts:Date.now()}; return true;
+}
+const THEMA = [["","ohne Gesundheitsthema"],["impfung","Impfung"],["wurmkur","Wurmkur"],["kotprobe","Kotprobe / Befund"],["betreuung","Betreuung"]];
+const NREGEL = "Außerhalb der geöffneten App wird keine automatische WhatsApp-Nachricht verschickt. Der automatische WhatsApp-Versand ist nicht Teil dieser App. Geräte-Hinweise sind erst möglich, nachdem dieses Handy ausdrücklich für Mitteilungen aktiviert wurde (Erlaubnis im Browser) – Kontakt und Frageinhalt bleiben im gemeinsamen App-Speicher sichtbar. Eine Antwort ist keine Betreuungszusage und keine Terminbestätigung.";
+function frageBezug(q){
+  const t=doc.termine[q.termin],thema=(THEMA.find(x=>x[0]===q.thema)||[])[1];
+  return [q.datum?dfmt(q.datum):"",q.thema?thema:"",q.termin?(t?"Termin: "+(TERMART.find(x=>x[0]===t.art)||["","Termin"])[1]+" · "+dfmt(t.datum):"Termin nicht mehr vorhanden"):""].filter(Boolean).join(" · ");
+}
+function oeffneNachrichten(bezug){ nachrichtenBezug=bezug||null; tab="nachrichten"; render(); }
+function vNachrichten(){
+  const bez=nachrichtenBezug;
+  const qs=Object.values(doc.fragen||{}).filter(q=>!bez || Object.keys(bez).every(k=>k==="frage"?q.id===bez[k]:q[k]===bez[k]))
+    .sort((a,b)=>b.ts-a.ts || a.id.localeCompare(b.id));
+  let h=`<div class="card"><h2>Fragen &amp; Antworten</h2><div class="dp">${NREGEL}</div><div class="dp">An ausgewählte Teammitglieder adressiert, aber im gemeinsamen App-Speicher für das Team sichtbar. Keine vertraulichen persönlichen Nachrichten oder Kontaktdaten eintragen. Namen sind selbst ausgewählt, nicht sicher authentifiziert.</div>
+    <button class="prim" data-neu="frage">Frage schreiben</button>${bez?`<button class="sec" style="margin-top:8px" id="nAlle">Alle Nachrichten anzeigen</button>`:""}</div>`;
+  h+=qs.length?qs.map(q=>`<div class="card"><span class="tag ${frageStatus(q)==="offen"?"warn":"ok"}">${esc(frageStatus(q))}</span>
+    <h3>${esc(q.text)}</h3><div class="m">Von ${esc(q.by)} an ${esc((q.an||[]).join(", "))} · ${esc(new Date(q.ts).toLocaleString("de-DE"))}</div><div class="m">${esc(frageBezug(q))}</div>
+    ${antwortenZu(q.id).map(a=>`<div class="eintrag"><div style="flex:1"><b>${esc(a.by)}</b> · ${esc(new Date(a.ts).toLocaleString("de-DE"))}<div class="m">${esc(a.text)}</div></div></div>`).join("")||`<div class="empty">Noch keine Antwort.</div>`}
+    <button class="prim" data-antwort="${esc(q.id)}">Antwort schreiben</button><div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${["offen","beantwortet","erledigt"].map(s=>`<button class="mini" data-qstatus="${esc(q.id)}" data-status="${s}">${s}</button>`).join("")}</div></div>`).join(""):`<div class="card empty">Noch keine Fragen${bez?" zu diesem Bezug":""}.</div>`;
+  h+=vPushKarte();
+  return h;
+}
+function aboFuerPerson(person){
+  return Object.values(doc.pushabos||{}).filter(a=>a.person===person && !doc.tomb[a.id]);
+}
+function fremdesAboVorhanden(person){
+  return Object.values(doc.pushabos||{}).some(a=>a.person!==person && !doc.tomb[a.id]);
+}
+function vPushKarte(){
+  if(!PUSHK || !PUSHK.vapidPublicKey) return "";
+  const nr = "Mitteilungen auf diesem Handy aktivieren";
+  let h = `<div class="card"><h2>Benachrichtigungen auf diesem Handy</h2><div class="dp">Kein automatischer WhatsApp-Versand. Mitteilungen kommen nur, wenn dieses Handy hier ausdrücklich aktiviert wurde. Die Zustellung läuft über einen getrennten Dienst etwa im Minutentakt – keine Echtzeit-Garantie.</div>`;
+  if(istIOS() && !alsApp()) h += `<div class="banner"><b>iPhone:</b> Zuerst über „Teilen → Zum Home-Bildschirm“ installieren, danach hier aktivieren.</div>`;
+  if(!me) return h + `<button class="prim" data-wer="1">Zuerst „Wer bist du?“ wählen</button></div>`;
+  const eigene = aboFuerPerson(me);
+  if(eigene.length){
+    h += eigene.map(a=>`<div class="term"><div style="flex:1"><b>Gerät angemeldet – Zustellung erst nach Test bestätigt</b><div class="m">${esc(a.person)} · seit ${esc(new Date(a.ts).toLocaleString("de-DE"))}</div></div><button class="mini" data-pushaus="${esc(a.id)}">Dieses Handy ausschalten</button></div>`).join("");
+  } else {
+    h += `<button class="prim" data-pushan="1">${nr}</button>`;
+    if(fremdesAboVorhanden(me)) h += `<div class="dp">Auf diesem Gerät ist noch ein anderes Teammitglied angemeldet. Bitte das eigene Handy hier neu bestätigen.</div>`;
+  }
+  h += `<div class="dp">Nur wer hier selbst aktiviert, gilt als angemeldet. Fremde Geräte werden nie angezeigt oder gelöscht.</div></div>`;
+  return h;
+}
+function vNachrichtenHeute(){
+  const ereignisse=[...Object.values(doc.fragen||{}).map(q=>({q,text:q.text,by:q.by,ts:q.ts,art:"Frage"})),
+    ...Object.values(doc.antworten||{}).filter(a=>doc.fragen[a.frage]).map(a=>({q:doc.fragen[a.frage],text:a.text,by:a.by,ts:a.ts,art:"Antwort"}))]
+    .sort((a,b)=>b.ts-a.ts).slice(0,8);
+  return `<div class="card"><h2>Neueste Fragen &amp; Antworten</h2><div class="dp">${NREGEL}</div>`+(ereignisse.length?ereignisse.map(e=>`<div class="term"><div style="flex:1"><b>${e.art} · ${esc(e.by)}</b><div class="m">${esc(e.text)}</div><div class="m">${esc(new Date(e.ts).toLocaleString("de-DE"))} · ${esc(frageBezug(e.q))} · ${esc(frageStatus(e.q))}</div></div><button class="mini" data-qopen="${esc(e.q.id)}">öffnen</button></div>`).join(""):`<div class="empty">Noch keine Fragen oder Antworten.</div>`)+`<button class="prim" data-goto="nachrichten">Nachrichten öffnen</button></div>`;
+}
+function fFrage(v={}){
+  const termin=doc.termine[v.termin];
+  sheet(`<h2>Frage schreiben</h2><div class="dp">${NREGEL}</div>
+    <label>An wen? (mehrere Teammitglieder möglich)</label><select id="qAn" multiple size="6">${PERSONEN.map(p=>`<option value="${esc(p)}" ${(v.an||[]).includes(p)?"selected":""}>${esc(p)}</option>`).join("")}</select>
+    <label>Frage</label><textarea id="qText"></textarea>
+    <label>Bezug auf Termin (optional)</label><select id="qTermin"><option value="">ohne Termin</option>${Object.values(doc.termine||{}).sort((a,b)=>a.datum.localeCompare(b.datum)).map(t=>`<option value="${esc(t.id)}" ${v.termin===t.id?"selected":""}>${esc((TERMART.find(x=>x[0]===t.art)||["","Termin"])[1]+" · "+dfmt(t.datum)+(t.zeit?" · "+t.zeit:""))}</option>`).join("")}</select>
+    <label>Gesundheitsthema / Betreuung (optional)</label><select id="qThema">${THEMA.map(([k,t])=>`<option value="${k}" ${v.thema===k?"selected":""}>${t}</option>`).join("")}</select>
+    <label>Datum als Bezug (optional)</label><input type="date" id="qDatum" value="${esc(v.datum||termin?.datum||"")}">
+    <button class="prim" id="qOk">Frage speichern</button><button class="sec" style="width:100%;margin-top:8px" id="qAb">Abbrechen</button>`);
+  $("#qTermin").onchange=()=>{const t=doc.termine[$("#qTermin").value];if(t && !$("#qDatum").value) $("#qDatum").value=t.datum;};
+  $("#qAb").onclick=closeSheet;
+  $("#qOk").onclick=async()=>{
+    let q; try{q=sFrage({text:$("#qText").value,an:[...$("#qAn").selectedOptions].map(o=>o.value),termin:$("#qTermin").value,thema:$("#qThema").value,datum:$("#qDatum").value});}catch(e){return alert(e.message);}
+    doc.fragen[q.id]=q;closeSheet();await save();render();
+  };
+}
+function fAntwort(id){
+  const q=doc.fragen[id]; if(!q) return;
+  sheet(`<h2>Antwort schreiben</h2><div class="dp"><b>${esc(q.text)}</b><br>${esc(frageBezug(q))}</div><div class="dp">Antworten werden mit Name und Zeitpunkt einzeln gespeichert, nicht überschrieben. Keine Übernahme / Zusage durch eine Antwort.</div>
+    <label>Antwort als ${esc(me)}</label><textarea id="aText"></textarea><button class="prim" id="aOk">Antwort speichern</button><button class="sec" style="width:100%;margin-top:8px" id="aAb">Abbrechen</button>`);
+  $("#aAb").onclick=closeSheet;
+  $("#aOk").onclick=async()=>{try{antworte(id,$("#aText").value);}catch(e){return alert(e.message);}closeSheet();await save();render();};
+}
+/* Eine Planung, Nachricht oder fremde Zuordnung ist niemals eine Selbstzusage. */
+function betreuungsFuer(datum){
+  return Object.values(doc.betreuungszusagen||{}).filter(z=>z.datum===datum).sort((a,b)=>a.ts-b.ts || a.id.localeCompare(b.id));
+}
+function sageZu(datum){
+  if(!PERSONEN.includes(me) || !datumOK(datum)) return null;
+  const alt=betreuungsFuer(datum).find(z=>z.person===me); if(alt) return alt;
+  const z={id:uid(),datum,person:me,ts:Date.now()}; doc.betreuungszusagen[z.id]=z; return z;
+}
+function nimmZurueck(id){
+  const z=doc.betreuungszusagen[id]; if(!z || z.person!==me) return false;
+  grab("betreuungszusagen",id); return true;
+}
+function vBetreuung(datum,titel){
+  const p=planTag(datum),zs=betreuungsFuer(datum),konflikt=new Set(zs.map(z=>z.person)).size>1;
+  return `<div class="card" style="border:2px solid ${!zs.length||konflikt?'var(--warn)':'var(--accent)'}"><h2>${esc(titel)} · ${dfmt(datum)}</h2>
+    <div class="dp"><b>Geplant (Unterricht / Plan):</b> ${esc((p?.personen||[]).join(", ")||"niemand eingetragen")}${p?.zeit?" · "+esc(p.zeit):""} – keine bestätigte Betreuung.</div>
+    ${!zs.length?`<div class="banner"><b>Betreuung offen – noch keine verbindliche Übernahme</b><div>Verbindliche Übernahme: offen</div></div>`:konflikt?`<div class="banner"><b>Mehrere Zusagen – bitte miteinander abstimmen.</b> Niemand wird automatisch ausgewählt.</div>`:""}
+    ${zs.map(z=>`<div class="term"><div style="flex:1"><b>${esc(z.person)} hat selbst übernommen</b><div class="m">${esc(new Date(z.ts).toLocaleString("de-DE"))}</div></div>${z.person===me?`<button class="mini" data-zurueck="${esc(z.id)}">Eigene Zusage zurücknehmen</button>`:""}</div>`).join("")}
+    ${zs.some(z=>z.person===me)?"":`<button class="prim" data-zusage="${esc(datum)}">Ich übernehme${me?" · "+esc(me):""}</button>`}
+    <button class="sec" style="margin-top:8px" data-tagesfrage="${esc(datum)}">Für ${titel==="HEUTE"?"heute":"morgen"} fragen</button>
+    <div class="dp">Es zählt nur die ausdrückliche Selbstzusage des ausgewählten Nutzers, kein Kommentar. Keine automatische Benachrichtigung außerhalb der geöffneten App.</div></div>`;
+}
 function vWoche(){
   const heute = today();
   const montag = new Date(parse(heute)); montag.setDate(montag.getDate() - ((montag.getDay()+6)%7));
-  let h = `<div class="card"><h2>Wochenübersicht</h2><div class="dp">Feste Zeiten: Mittwoch 15:00–16:00 · Donnerstag 15:30–16:30 (Marie + Hanna).</div></div>`;
+  let h = `<div class="card"><h2>Wochenübersicht</h2><div class="dp">Wochenrhythmus Montag bis Sonntag: unten unter „Wiederkehrende Woche“ pro Tag mit „ändern“ den dauerhaften Ablauf eintragen – wann, mit wem und wie Schoki bewegt wird. „Tag bearbeiten“ gilt nur für dieses Datum. Planung / Kinderunterricht ist keine verbindliche Betreuungsübernahme; diese auf Heute separat bestätigen.</div><div class="dp">Feste Unterrichtszeiten: Mittwoch 15:00–16:00 · Donnerstag 15:30–16:30 (Marie + Hanna).</div></div>`;
   for(let i=0;i<7;i++){
     const d = new Date(montag); d.setDate(montag.getDate()+i);
     const n = iso(d);
@@ -354,7 +564,7 @@ function vWoche(){
   h += `<div class="card"><h3>Wiederkehrende Woche (Vorlage)</h3><div class="dp">Diese Vorgabe gilt für jeden Tag, solange für ein Datum nichts eigenes eingetragen ist.</div>`;
   for(let i=1;i<=7;i++){ const k = ["mo","di","mi","do","fr","sa","so"][i-1]; const w = (doc.woche||{})[k];
     h += `<div class="term"><div class="ic">${i}</div><div style="flex:1"><div class="t">${WOCHENTAG[i-1]}</div><div class="m">${w?esc((w.personen||[]).join(", "))+(w.zeit?" · "+esc(w.zeit):"")+(w.aktivitaet?" · "+esc(w.aktivitaet):""):"—"}</div></div><button class="mini" data-woche="${k}">ändern</button></div>`; }
-  h += `</div><div class="card"><h3>Regeln (Stall Gräfelfing)</h3><div class="dp">Kein Tag ohne Bewegung. · Nie zwei harte Einheiten hintereinander. · Wird es eng, fällt die Reiteinheit. · Wenn etwas ausfällt: sofort melden – dann übernimmt Annika.</div></div>`;
+  h += `</div><div class="card"><h3>Regeln (Stall Gräfelfing)</h3><div class="dp">Kein Tag ohne Bewegung. · Nie zwei harte Einheiten hintereinander. · Wird es eng, fällt die Reiteinheit. · Wenn etwas ausfällt: sofort miteinander abstimmen und eine ausdrückliche Selbstzusage einholen – niemand übernimmt automatisch.</div></div>`;
   return h;
 }
 function vProto(){
@@ -378,7 +588,57 @@ function pflegeStand(art){
     .sort((a,b) => (a.datum||"").localeCompare(b.datum||""));
   let faellig = offen[0] ? offen[0].datum : "";
   if(!faellig && erl && wochen){ const d = parse(erl.datum); d.setDate(d.getDate() + wochen*7); faellig = iso(d); }
+  if(medizinisch(art)) faellig = gesundStand(art)?.faellig || "";
   return {wochen, erl, offen, faellig, naechster: offen[0] || null};
+}
+/* Gesundheitsbelege sind Laufzeitdaten; keine vorbelegten Maßnahmen oder Intervalle. */
+const GART = [["impfung","Impfung"],["wurmkur","Wurmkur"],["kotprobe","Kotprobe / Befund"]];
+const datumOK = s => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && iso(parse(s)) === s;
+const GREGEL = "Fälligkeit laut Impfpass/Tierarzt – keine automatische Behandlungsempfehlung. Organisation ist keine Ermächtigung zu medizinischen Entscheidungen. Medizinische Entscheidungen und kostenpflichtige Behandlungen grundsätzlich nur mit Thomas’ Zustimmung, außer im Notfall.";
+function sGesundheit(p){
+  if(!GART.some(([k])=>k===p.art) || !p.bezeichnung?.trim() || !p.quelle?.trim()) throw new Error("Bitte Thema, genaue Bezeichnung und Quelle eintragen.");
+  if((p.datum && !datumOK(p.datum)) || (p.faellig && (!datumOK(p.faellig) || (p.datum && p.faellig <= p.datum)))) throw new Error("Bitte Datum / Fälligkeit prüfen.");
+  if(p.faellig && !p.bestaetigung?.trim()) throw new Error("Tierärztliche Bestätigung für die Fälligkeit fehlt.");
+  return {id:uid(),art:p.art,datum:p.datum||"",bezeichnung:p.bezeichnung,quelle:p.quelle||"",
+    faellig:p.faellig||"",bestaetigung:p.bestaetigung||"",by:me,ts:Date.now()};
+}
+function gesundStand(art){
+  return Object.values(doc.gesundheit||{}).filter(g=>g.art===art)
+    .sort((a,b)=>(b.datum||"").localeCompare(a.datum||"") || b.ts-a.ts)[0] || null;
+}
+function vGesundheit(){
+  let h = `<div class="card"><h2>Gesundheit</h2><div class="dp">Nur dokumentierte Angaben aus Impfpass oder Tierarztbeleg eintragen. Keine Behandlungsempfehlung. Unbekannt bleibt unbekannt; Fälligkeit tierärztlich klären.</div>
+    <div class="banner">Gemeinsamer App-Speicher, keine vertrauliche Patientenakte: keine persönlichen Angaben, Telefonnummern oder Impfpassfotos eintragen. Der Familien-Code ist keine sichere Zugangskontrolle.</div><div class="dp">${GREGEL}</div></div>`;
+  for(const [art,label] of GART){
+    const g = gesundStand(art);
+    h += `<div class="card"><h2>${label}</h2><div class="m">Letzte dokumentierte Maßnahme: ${g?.datum?dfmt(g.datum):"unbekannt"}</div>
+      <div class="m">${g?esc(g.bezeichnung):"Bezeichnung / Präparat / Befund unbekannt"}</div>
+      <div class="m">Quelle: ${g?.quelle?esc(g.quelle):"unbekannt"}</div>
+      <div class="m">${g?.faellig?"Tierärztlich bestätigte Fälligkeit: "+dfmt(g.faellig)+" · "+esc(g.bestaetigung):"Fälligkeit unbekannt"}</div>
+      <button class="prim" data-neu="gesundheit" data-art="${art}">Beleg / Maßnahme ergänzen</button></div>`;
+  }
+  const alle = Object.values(doc.gesundheit||{}).sort((a,b)=>(b.datum||"").localeCompare(a.datum||"") || b.ts-a.ts);
+  h += `<div class="card"><h3>Dokumentation</h3>` + (alle.length?alle.map(g=>`<div class="term"><div style="flex:1"><b>${esc((GART.find(x=>x[0]===g.art)||["","Gesundheit"])[1])} · ${g.datum?dfmt(g.datum):"Datum unbekannt"}</b>
+    <div class="m">${esc(g.bezeichnung)} · Quelle: ${esc(g.quelle||"unbekannt")}</div><div class="m">${g.faellig?"Fällig: "+dfmt(g.faellig)+" · "+esc(g.bestaetigung):"Fälligkeit unbekannt"}</div>
+    <div class="m">Erfasst von ${esc(g.by)} · ${esc(new Date(g.ts).toLocaleString("de-DE"))}</div></div></div>`).join(""):`<div class="empty">Noch keine Gesundheitsbelege erfasst.</div>`) + `</div>`;
+  return h;
+}
+function fGesundheit(art){
+  sheet(`<h2>Gesundheitsbeleg ergänzen</h2><div class="dp">Keine Daten raten. Datum leer lassen, wenn unbekannt. ${GREGEL}</div>
+    <label>Thema</label><select id="gArt">${GART.map(([k,t])=>`<option value="${k}" ${art===k?"selected":""}>${t}</option>`).join("")}</select>
+    <label>Datum der letzten Maßnahme (oder unbekannt)</label><input type="date" id="gDatum" value="">
+    <label>Genaue Impfung / Präparat / Befund</label><textarea id="gName"></textarea>
+    <label>Quelle (z. B. Impfpass / Tierarztbeleg)</label><input id="gQuelle" type="text">
+    <label>Nächste tierärztlich bestätigte Fälligkeit (leer = unbekannt)</label><input type="date" id="gFaellig" value="">
+    <label>Bestätigung / Beleg für diese Fälligkeit (ohne persönliche Angaben)</label><input type="text" id="gBeleg">
+    <button class="prim" id="gOk">Speichern</button><button class="sec" style="width:100%;margin-top:8px" id="gAb">Abbrechen</button>`);
+  $("#gAb").onclick = closeSheet;
+  $("#gOk").onclick = async()=>{
+    const p={art:$("#gArt").value,datum:$("#gDatum").value,bezeichnung:$("#gName").value.trim(),quelle:$("#gQuelle").value.trim(),faellig:$("#gFaellig").value,bestaetigung:$("#gBeleg").value.trim()};
+    if(!p.bezeichnung || !p.quelle || (p.faellig && !p.bestaetigung)) return alert("Bitte genaue Bezeichnung und Quelle sowie bei Fälligkeit die tierärztliche Bestätigung eintragen.");
+    let g; try{ g=sGesundheit(p); }catch(e){ return alert(e.message); } doc.gesundheit[g.id]=g;
+    closeSheet(); await save(); render();
+  };
 }
 function vTermine(){
   const alle = Object.values(doc.termine||{}).sort((a,b) => a.datum.localeCompare(b.datum));
@@ -386,21 +646,22 @@ function vTermine(){
   const zeile = t => { const d = tage_bis(t.datum);
     return `<div class="term"><div class="ic">${esc((TERMART.find(a=>a[0]===t.art)||["","📌"])[1].slice(0,2))}</div>
       <div style="flex:1"><div class="t">${esc((TERMART.find(a=>a[0]===t.art)||["","Sonstiges"])[1].replace(/^\S+\s/,""))}${t.kosten?" · "+esc(t.kosten):""}</div>
-      <div class="m">${dfmt(t.datum)}${t.zeit?" · "+esc(t.zeit):""}${(t.wer||[]).length?" · "+(t.wer||[]).map(esc).join(", "):""}${t.info?"\n"+esc(t.info):""}</div>
-      <div><span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen"}</span>${t.wieder?`<span class="tag">↻ ${esc(wiederText(t.wieder))}</span>`:""}<span class="tag">von ${esc(t.by||"—")}</span></div></div>
-      <div style="text-align:right"><button class="mini" data-erl="${t.id}">${t.erledigt?"offen":"erledigt"}</button><br><button class="mini" data-del-term="${t.id}">löschen</button></div></div>`; };
-  let h = `<div class="card"><h2>Termine</h2>`;
+      <div class="m">${dfmt(t.datum)}${t.zeit?" · "+esc(t.zeit):""}${(t.wer||[]).length?" · Anwesenheit: "+(t.wer||[]).map(esc).join(", "):""}${t.info?"\n"+esc(t.info):""}</div>
+      <div class="m">Organisation: ${esc(t.organisation||"offen")} · ${esc(t.status||"Status offen / noch nicht geklärt")}</div>
+      <div><span class="tag ${d<0?"warn":"ok"}">${d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen"}</span>${t.wieder&&(!medizinisch(t.art)||t.wiederQuelle)?`<span class="tag">↻ ${esc(wiederText(t.wieder))}${medizinisch(t.art)?" · tierärztlich belegt":""}</span>`:""}<span class="tag">von ${esc(t.by||"—")}</span></div></div>
+      <div style="text-align:right"><button class="mini" data-tedit="${esc(t.id)}">bearbeiten</button><br><button class="mini" data-tmsg="${esc(t.id)}">Nachrichten</button><br><button class="mini" data-tfrage="${esc(t.id)}">Frage dazu</button><br><button class="mini" data-erl="${esc(t.id)}">${t.erledigt?"offen":"erledigt"}</button><br><button class="mini" data-del-term="${esc(t.id)}">löschen</button></div></div>`; };
+  let h = `<div class="card"><h2>Termine</h2><div class="dp">Organisation ist eine Zuordnung / ein Vorschlag, keine fremde Zusage. Anwesenheit ist davon getrennt. Ein vergangenes Datum setzt keinen Termin automatisch auf erledigt. ${GREGEL}</div>`;
   h += offen.length ? offen.map(zeile).join("") : `<div class="empty">Keine offenen Termine.</div>`;
   h += `<button class="prim" data-neu="termin">Termin eintragen</button></div>`;
   h += `<div class="card"><h3>Wiederkehrende Pflege</h3>
-    <div class="dp">Impfung, Beschlag, Wurmkur und Co. laufen als Wiederholung: einmal abhaken – der nächste Termin entsteht automatisch.</div>`;
+    <div class="dp">Beschlag bleibt von Gesundheit getrennt. Impfung / Wurmkur / Kotprobe: keine Standardintervalle; Folgetermine nur bei ausdrücklich belegter tierärztlicher Fälligkeit oder belegtem Intervall. Abhaken allein dokumentiert keine tatsächlich verabreichte Impfung – Beleg im Reiter Gesundheit ergänzen.</div>`;
   for(const [art, wochen, label] of PFLEGE){
     const s = pflegeStand(art);
     const d = s.faellig ? tage_bis(s.faellig) : null;
     h += `<div class="term"><div class="ic">${esc((TERMART.find(a=>a[0]===art)||["","📌"])[1].slice(0,2))}</div>
       <div style="flex:1"><div class="t">${esc(label)}</div>
-      <div class="m">${s.faellig ? "fällig "+dfmt(s.faellig)+" ("+(d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen")+")"+(s.erl?"\nzuletzt "+dfmt(s.erl.datum):"") : "noch nicht erfasst"}</div>
-      <div><span class="tag">↻ ${esc(wiederText(wochen))}</span>${s.naechster?"<span class=\"tag ok\">eingetragen</span>":`<span class="tag warn">nichts eingetragen</span>`}</div></div>
+      <div class="m">${s.faellig ? "fällig "+dfmt(s.faellig)+" ("+(d<0?Math.abs(d)+" Tage überfällig":d===0?"heute":"in "+d+" Tagen")+")"+(s.erl?"\nzuletzt "+dfmt(s.erl.datum):"") : medizinisch(art)?"Fälligkeit unbekannt":"noch nicht erfasst"}</div>
+      <div>${wochen?`<span class="tag">↻ ${esc(wiederText(wochen))}</span>`:""}${s.naechster?"<span class=\"tag ok\">eingetragen</span>":`<span class="tag warn">nichts eingetragen</span>`}</div></div>
       <button class="mini" data-neu="pflege" data-art="${art}" data-wieder="${wochen}">eintragen</button></div>`;
   }
   h += `</div>`;
@@ -706,24 +967,40 @@ function fProto(vorgabe){
   });
 }
 function fTermin(vorgabe){
-  const v = vorgabe || {};
-  sheet(`<h2>Termin eintragen</h2>
+  const alt = typeof vorgabe === "string" ? doc.termine[vorgabe] : null;
+  if(typeof vorgabe === "string" && !alt) return;
+  const v = alt || vorgabe || {};
+  sheet(`<h2>${alt?"Termin bearbeiten":"Termin eintragen"}</h2>
     <label>Art</label><select id="tArt">${TERMART.map(a=>`<option value="${a[0]}" ${v.art===a[0]?"selected":""}>${a[1]}</option>`).join("")}</select>
-    <div class="row"><div><label>Datum</label><input type="date" id="tDatum" value="${today()}"></div>
-      <div><label>Uhrzeit</label><input type="text" id="tZeit" placeholder="10:00"></div></div>
-    <label>Wiederholung</label><select id="tWieder">${WIEDER.map(w=>`<option value="${w[0]}" ${Number(v.wieder||0)===w[0]?"selected":""}>${w[1]}</option>`).join("")}</select>
-    <div class="dp" style="font-size:13px;color:var(--ink2)">Bei Wiederholung: Termin abhaken, danach entsteht der nächste Termin automatisch – für Impfung, Beschlag, Wurmkur und Co.</div>
-    <label>Wer ist dabei?</label><div class="chips" id="tPers">${PERSONEN.map(p=>`<button class="chip" data-tp="${p}">${p}</button>`).join("")}</div>
-    <label>Kosten / Honorar</label><input type="text" id="tKosten" placeholder="z. B. 120 €">
-    <label>Notiz</label><textarea id="tInfo" placeholder="z. B. Zahnkontrolle, Praxis Dr. Mayr"></textarea>
+    <div class="row"><div><label>Datum</label><input type="date" id="tDatum" value="${esc(v.datum||"")}"></div>
+      <div><label>Uhrzeit</label><input type="text" id="tZeit" value="${esc(v.zeit||"")}" placeholder="10:00"></div></div>
+    <label>Organisation (Zuordnung, keine fremde Zusage)</label><select id="tOrg"><option value="">offen</option>${PERSONEN.map(p=>`<option value="${esc(p)}" ${v.organisation===p?"selected":""}>${esc(p)}</option>`).join("")}</select>
+    <label>Planungsstatus (getrennt von erledigt)</label><select id="tStatus">${alt&&!v.status?`<option value="" selected>offen / noch nicht geklärt</option>`:""}${["geplant","angefragt","bestätigt"].map(s=>`<option value="${s}" ${(v.status||(!alt?"geplant":""))===s?"selected":""}>${s}</option>`).join("")}</select>
+    <div id="tNormal"><label>Wiederholung (nicht für Impfung / Wurmkur / Kotprobe)</label><select id="tWieder">${WIEDER.map(w=>`<option value="${w[0]}" ${Number(v.wieder||0)===w[0]?"selected":""}>${w[1]}</option>`).join("")}</select><div class="dp">Bei Beschlag und anderen nicht hier aufgeführten Gesundheitsthemen kann ein hinterlegter Folgetermin nach dem Abhaken entstehen.</div></div>
+    <div id="tMed"><div class="dp">${GREGEL} Unbelegte alte Standardintervalle werden nicht übernommen.</div>
+      <label>Optional: nächste bestätigte Fälligkeit nach diesem Termin</label><input type="date" id="tFolge" value="${esc(v.folgeDatum||"")}">
+      <label>Tierärztlicher Beleg für diese Fälligkeit</label><input type="text" id="tFolgeBeleg" value="${esc(v.folgeQuelle||"")}">
+      <label>Oder: ausdrücklich tierärztlich belegtes Intervall (Wochen, leer = unbekannt)</label><input type="number" min="1" step="1" id="tMedWochen" value="${v.wiederQuelle?esc(v.wieder||""):""}">
+      <label>Tierärztlicher Beleg für dieses Intervall</label><input type="text" id="tWBeleg" value="${esc(v.wiederQuelle||"")}"></div>
+    <label>Wer ist dabei? (nur Anwesenheit, keine Organisation)</label><div class="chips" id="tPers">${PERSONEN.map(p=>`<button class="chip ${(v.wer||[]).includes(p)?"on":""}" data-tp="${p}">${p}</button>`).join("")}</div>
+    <label>Kosten / Honorar</label><input type="text" id="tKosten" value="${esc(v.kosten||"")}" placeholder="z. B. 120 €">
+    <label>Notiz</label><textarea id="tInfo">${esc(v.info||"")}</textarea>
     <button class="prim" id="tOk">Speichern</button><br><button class="sec" style="width:100%;margin-top:8px" id="tAb">Abbrechen</button>`);
-  const sel = new Set();
+  const sel = new Set(v.wer||[]);
+  const medMaske=()=>{const med=medizinisch($("#tArt").value);$("#tNormal").classList.toggle("hidden",med);$("#tMed").classList.toggle("hidden",!med);};
+  $("#tArt").onchange=medMaske; medMaske();
   $("#sheet").addEventListener("click", e => { const b = e.target.closest("[data-tp]");
     if(b){ const p = b.dataset.tp; if(sel.has(p)){sel.delete(p);b.classList.remove("on");} else {sel.add(p);b.classList.add("on");} } });
   $("#tAb").addEventListener("click", closeSheet);
   $("#tOk").addEventListener("click", async () => {
-    const t = sTermin({art:$("#tArt").value, datum:$("#tDatum").value||today(), zeit:$("#tZeit").value.trim(),
-      wieder:$("#tWieder").value, personen:[...sel], kosten:$("#tKosten").value.trim(), info:$("#tInfo").value.trim()});
+    if(!datumOK($("#tDatum").value)) return alert("Bitte ein gültiges Termindatum eintragen.");
+    const med=medizinisch($("#tArt").value); let neu;
+    try{ neu = sTermin({art:$("#tArt").value, datum:$("#tDatum").value, zeit:$("#tZeit").value.trim(),
+      organisation:$("#tOrg").value,status:$("#tStatus").value,wieder:med?$("#tMedWochen").value:$("#tWieder").value,
+      wiederQuelle:med?$("#tWBeleg").value.trim():"",folgeDatum:med?$("#tFolge").value:"",folgeQuelle:med?$("#tFolgeBeleg").value.trim():"",
+      personen:[...sel], kosten:$("#tKosten").value.trim(), info:$("#tInfo").value.trim()}); }catch(e){return alert(e.message);}
+    if(alt && !$("#tStatus").value) delete neu.status;
+    const t = alt ? {...alt,...neu,id:alt.id,erledigt:alt.erledigt} : neu;
     doc.termine[t.id] = t; closeSheet(); await save(); render();
   });
 }
@@ -799,10 +1076,34 @@ function fWichtig(){
 
 /* ====== Bindung ====== */
 function bind(){
+  $$('[data-tedit]').forEach(b=>b.onclick=()=>me?fTermin(b.dataset.tedit):fWer());
+  $$('[data-tmsg]').forEach(b=>b.onclick=()=>oeffneNachrichten({termin:b.dataset.tmsg}));
+  $$('[data-tfrage]').forEach(b=>b.onclick=()=>me?fFrage({termin:b.dataset.tfrage}):fWer());
+  $$('[data-antwort]').forEach(b=>b.onclick=()=>me?fAntwort(b.dataset.antwort):fWer());
+  $$('[data-qopen]').forEach(b=>b.onclick=()=>oeffneNachrichten({frage:b.dataset.qopen}));
+  $$('[data-qstatus]').forEach(b=>b.onclick=async()=>{if(!me)return fWer();if(setFrageStatus(b.dataset.qstatus,b.dataset.status)){await save();render();}});
+  $$('[data-tagesfrage]').forEach(b=>b.onclick=()=>{if(!me)return fWer();const bez={datum:b.dataset.tagesfrage,thema:"betreuung"};oeffneNachrichten(bez);fFrage(bez);});
+  if($("#nAlle")) $("#nAlle").onclick=()=>oeffneNachrichten();
+  $$('[data-zusage]').forEach(b=>b.onclick=async()=>{ if(!me) return fWer(); if(sageZu(b.dataset.zusage)){ await save(); render(); } });
+  $$('[data-zurueck]').forEach(b=>b.onclick=async()=>{ if(nimmZurueck(b.dataset.zurueck)){ await save(); render(); } });
+  $$('[data-wer]').forEach(b=>b.onclick=fWer);
+  $$('[data-pushan]').forEach(b=>b.onclick=async()=>{
+    if(!me) return fWer();
+    if(typeof Notification==="undefined" || !("serviceWorker" in navigator)){ alert("Dieses Gerät unterstützt keine Mitteilungen."); return; }
+    let perm = Notification.permission;
+    if(perm !== "granted"){ try{ perm = await Notification.requestPermission(); }catch(e){ perm = Notification.permission; } }
+    if(perm !== "granted"){ alert("Ohne Erlaubnis können keine Mitteilungen ankommen. Du kannst es später erneut versuchen."); return; }
+    const r = await geraetAktivieren(me, {crypto, navigator, Notification});
+    if(r.aktiv){ await save(); render(); alert("Dieses Handy ist angemeldet. Die Zustellung wird noch getestet."); }
+    else alert("Anmeldung nicht möglich: " + (r.grund || "unbekannt"));
+  });
+  $$('[data-pushaus]').forEach(b=>b.onclick=async()=>{ if(!me) return fWer(); if(aboAusschalten(b.dataset.pushaus,{navigator})){ await save(); render(); } });
   document.querySelectorAll("[data-neu]").forEach(b => b.onclick = () => {
     if(!me){ fWer(); return; }
     if(b.dataset.neu === "proto") fProto(b.dataset.datum);
     else if(b.dataset.neu === "termin") fTermin();
+    else if(b.dataset.neu === "gesundheit") fGesundheit(b.dataset.art);
+    else if(b.dataset.neu === "frage") fFrage(nachrichtenBezug||{});
     else if(b.dataset.neu === "turnier") fTurnier();
     else if(b.dataset.neu === "pflege") fTermin({art:b.dataset.art, wieder:Number(b.dataset.wieder)});
     else if(b.dataset.neu === "futter") fFutter();
@@ -821,10 +1122,11 @@ function bind(){
     const t = doc.turniere[b.dataset.tset]; if(!t) return;
     t.status = b.dataset.status; t.ts = Date.now(); t.by = me; await save(); render(); });
   document.querySelectorAll("[data-erl]").forEach(b => b.onclick = async () => {
-    const t = doc.termine[b.dataset.erl];
+    if(!me) return fWer();
+    const t = doc.termine[b.dataset.erl]; if(!t) return;
     const wirdErledigt = !t.erledigt;
     t.erledigt = !t.erledigt; t.ts = Date.now(); t.by = me;
-    if(wirdErledigt && Number(t.wieder||0) > 0){
+    if(wirdErledigt){
       const n = naechsterTermin(t, today());
       const schonDa = Object.values(doc.termine||{}).some(x => x.vorher === t.id && !x.erledigt);
       if(n && !schonDa) doc.termine[n.id] = n;
